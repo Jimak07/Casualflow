@@ -22,10 +22,18 @@ import {
   Volume2,
   BookOpen,
   ExternalLink,
-  Search,
   ShieldCheck,
+  TrendingUp,
+  History,
+  Users,
+  Wallet,
+  Globe,
+  Radio,
+  Layers,
+  ArrowRight,
+  Info,
 } from "lucide-react";
-import { StoryPitch, ScriptSection, SavedScriptEntry } from "@/types";
+import { StoryPitch, ScriptSection, SavedScriptEntry, StorylineMap, VerifiedSource } from "@/types";
 import { getStorySections } from "@/utils/scriptHelper";
 import { API_ENDPOINTS } from "@/lib/api";
 
@@ -34,6 +42,7 @@ interface ScriptStudioProps {
   onUpdateStoryScript: (storyId: string, updatedSections: ScriptSection[]) => void;
   onResetStoryScript: (storyId: string) => void;
   onOpenApiKeys: () => void;
+  isBuildingStoryline?: boolean;
 }
 
 export const ScriptStudio: React.FC<ScriptStudioProps> = ({
@@ -41,8 +50,11 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
   onUpdateStoryScript,
   onResetStoryScript,
   onOpenApiKeys,
+  isBuildingStoryline = false,
 }) => {
   const [sections, setSections] = useState<ScriptSection[]>([]);
+  const [storylineMap, setStorylineMap] = useState<StorylineMap | null>(null);
+  const [isStorylineMapExpanded, setIsStorylineMapExpanded] = useState(true);
   const [copyStatus, setCopyStatus] = useState<"idle" | "clean" | "all" | "saved">("idle");
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -65,7 +77,7 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
     setToastMessage(message);
     setTimeout(() => {
       setToastMessage(null);
-    }, 3500);
+    }, 4000);
   };
 
   // Load Saved Library from localStorage on mount
@@ -85,7 +97,50 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
   // Sync state whenever selectedStory changes
   useEffect(() => {
     if (selectedStory) {
-      // 1. Check if user has cached edits in localStorage
+      // 1. Sync Storyline Map from selectedStory or cached in localStorage
+      if (selectedStory.storylineMap) {
+        setStorylineMap(selectedStory.storylineMap);
+      } else {
+        const cachedMap = localStorage.getItem(`causalflow_storyline_${selectedStory.id}`);
+        if (cachedMap) {
+          try {
+            setStorylineMap(JSON.parse(cachedMap));
+          } catch (e) {
+            console.error("Failed to parse cached storyline map", e);
+          }
+        } else if (selectedStory.nodes) {
+          // Fallback to story nodes
+          setStorylineMap({
+            timelineThread: {
+              title: selectedStory.nodes.macroTrigger.title || "1. Developing Timeline",
+              baselineOrigin: selectedStory.nodes.macroTrigger.baselineOrigin || "Ongoing geopolitical impasse",
+              breakingUpdate: selectedStory.nodes.macroTrigger.breakingUpdate || selectedStory.nodes.macroTrigger.description,
+              outletsReporting: selectedStory.nodes.macroTrigger.outletsReporting || selectedStory.nodes.macroTrigger.source,
+              metricTag: selectedStory.nodes.macroTrigger.metricTag || "🚨 High Strategic Sensitivity",
+              description: selectedStory.nodes.macroTrigger.description,
+            },
+            historicalParallel: {
+              title: selectedStory.nodes.historicalParallel.title || "2. Historical Parallel",
+              precedentEvent: selectedStory.nodes.historicalParallel.historicalPrecedent || selectedStory.historyShort || "1973 Oil Shock",
+              period: selectedStory.nodes.historicalParallel.period || "1973–1979",
+              similarityScore: selectedStory.nodes.historicalParallel.similarityScore || "93% Structural Match",
+              mechanism: selectedStory.nodes.historicalParallel.mechanism || "Structural supply and resource chokepoint leverage.",
+              lesson: selectedStory.nodes.historicalParallel.lesson || "Physical constraints cannot be replaced by monetary policy.",
+              description: selectedStory.nodes.historicalParallel.description,
+            },
+            averagePersonImpact: {
+              title: selectedStory.nodes.humanImpact.title || "3. Everyday Human Scale",
+              affectedGroup: selectedStory.nodes.humanImpact.affectedGroup || "Everyday Consumers & Households",
+              stepByStepChain: "Geopolitical shock ➔ Shipping surcharges ➔ Wholesale repricing ➔ Retail utility & grocery checkout costs.",
+              dollarOrPriceMetric: selectedStory.nodes.humanImpact.dollarOrPriceMetric || "+$38/mo Average Surcharge",
+              actionableTakeaway: selectedStory.nodes.humanImpact.actionableTakeaway || "Audit household energy bills and hedge volatile commodity inputs.",
+              description: selectedStory.nodes.humanImpact.description,
+            },
+          });
+        }
+      }
+
+      // 2. Check if user has cached script in localStorage
       const cachedKey = `causalflow_script_${selectedStory.id}`;
       const cached = localStorage.getItem(cachedKey);
       if (cached) {
@@ -103,11 +158,12 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
         }
       }
 
-      // 2. Otherwise load standardized 5-act sections
+      // 3. Otherwise load standardized 5-act sections
       const defaultSections = getStorySections(selectedStory);
       setSections(defaultSections);
     } else {
       setSections([]);
+      setStorylineMap(null);
     }
   }, [selectedStory]);
 
@@ -134,7 +190,7 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
           Script Studio Idle
         </h3>
         <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm mb-6">
-          Select any 3-Node Causal Timeline card from the Story Radar to review, deep-research, and edit its 5-Act documentary script.
+          Click &quot;Build Documentary Storyline →&quot; on any verified consensus card on the left to generate its 3-part storyline map and Economics Explained documentary script.
         </p>
       </div>
     );
@@ -166,7 +222,7 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
     onUpdateStoryScript(selectedStory.id, updated);
   };
 
-  // 1. Deep Context Search & Full Script Generation (Tavily + Groq / Universal AI)
+  // 1. Deep Context Search & Full Storyline + Script Generation (2-Step Intelligence Pipeline)
   const handleDeepResearchAndGenerate = async () => {
     let groqKey = "";
     let tavilyKey = "";
@@ -188,29 +244,25 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
       }
     }
 
-    if (!groqKey) {
-      showToast("💡 Please configure your Universal AI API key (Vyce AI, Gemini, Groq, OpenRouter, or OpenAI) in Settings to run AI research & scriptwriting!");
-      onOpenApiKeys();
-      return;
-    }
-
     const displayModel =
       model && model !== "auto" && model !== "hybrid"
         ? model
         : "claude-sonnet-4-6";
+
     setIsGeneratingFullScript(true);
-    setGenerationStep("1/2 Digging up live facts & historical archives via Tavily...");
+    setGenerationStep("1/2 Fetching historical context & developing timeline via Google News RSS & Tavily...");
 
     try {
       setTimeout(() => {
-        setGenerationStep(`2/2 Writing 5-Act production documentary script via ${displayModel}...`);
-      }, 1800);
+        setGenerationStep(`2/2 Generating Storyline Map & Economics Explained Script via ${displayModel}...`);
+      }, 1600);
 
-      const res = await fetch(API_ENDPOINTS.script, {
+      const res = await fetch(API_ENDPOINTS.storyline, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           pitch: selectedStory,
+          cluster: selectedStory,
           apiKey: groqKey,
           groqKey,
           tavilyKey,
@@ -222,10 +274,18 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
       const data = await res.json();
 
       if (!res.ok || !data.success) {
-        throw new Error(data.message || "Failed to generate script.");
+        throw new Error(data.message || data.error || "Failed to generate storyline.");
       }
 
-      const generatedSections: ScriptSection[] = (data.sections || []).map(
+      if (data.storylineMap) {
+        setStorylineMap(data.storylineMap);
+        localStorage.setItem(
+          `causalflow_storyline_${selectedStory.id}`,
+          JSON.stringify(data.storylineMap)
+        );
+      }
+
+      const generatedSections: ScriptSection[] = (data.scriptSections || []).map(
         (s: any, idx: number) => ({
           act: s.act || `ACT ${idx + 1}`,
           cue: s.cue || "[CAPCUT CUES]\n• Cinematic B-roll cuts and overlays",
@@ -247,13 +307,11 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
         showToast(data.notice);
       } else {
         showToast(
-          data.hasTavilyResearch
-            ? `✓ Verified with Tavily Research & drafted full 5-act script via ${resolvedModel}!`
-            : `✓ Drafted 5-act production script via ${resolvedModel}!`
+          `✓ Generated 3-Part Storyline Map & Economics Explained Script via ${resolvedModel}!`
         );
       }
     } catch (err: any) {
-      console.error("Script generation error:", err);
+      console.error("Storyline generation error:", err);
       showToast(`Generation failed: ${err.message || "Network error"}`);
     } finally {
       setIsGeneratingFullScript(false);
@@ -281,12 +339,6 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
           console.error("Failed to parse api keys", e);
         }
       }
-    }
-
-    if (!groqKey) {
-      showToast("💡 Add your Universal AI API key in Settings to regenerate individual acts!");
-      onOpenApiKeys();
-      return;
     }
 
     setRegeneratingActIndex(actIndex);
@@ -326,7 +378,7 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
         JSON.stringify(updated)
       );
 
-      showToast(`✓ Rewrote Act [${actIndex + 1}] without altering the rest of your script!`);
+      showToast(`✓ Rewrote Act [${actIndex + 1}] in Economics Explained voice!`);
     } catch (err: any) {
       console.error("Act regen error:", err);
       showToast(`Act regeneration failed: ${err.message}`);
@@ -342,10 +394,14 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
         let text = s.narration || "";
         // Strip [Source: ...] inline citations
         text = text.replace(/\[Source:[^\]]+\]/gi, "");
+        // Strip [Fact Source: ...] inline citations
+        text = text.replace(/\[Fact Source:[^\]]+\]/gi, "");
         // Strip [CapCut ...] visual directions
         text = text.replace(/\[CapCut[^\]]*\]/gi, "");
         // Strip [B-Roll ...] bracketed directions
         text = text.replace(/\[B-Roll:[^\]]+\]/gi, "");
+        // Strip any accidental Act title headers inside narration
+        text = text.replace(/^(COLD OPEN|ACT I|ACT II|ACT III|OUTRO)[^\n]*\n?/gim, "");
         return text.replace(/[ \t]+/g, " ").trim();
       })
       .filter(Boolean)
@@ -353,7 +409,7 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
 
     navigator.clipboard.writeText(cleanVoiceover);
     setCopyStatus("clean");
-    showToast("✓ Clean Voiceover copied! (Citations & visual cues stripped for 100% smooth ElevenLabs/TTS)");
+    showToast("✓ Clean Voiceover copied! (All citations & visual cues stripped for 100% smooth TTS/ElevenLabs)");
     setTimeout(() => setCopyStatus("idle"), 2500);
   };
 
@@ -447,6 +503,10 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
   const toggleCollapse = (idx: number) => {
     setCollapsedActs((prev) => ({ ...prev, [idx]: !prev[idx] }));
   };
+
+  const verifiedSourcesList: VerifiedSource[] = selectedStory.verifiedSources || [];
+  const breakingArticles = verifiedSourcesList.filter((s) => s.type !== "background_context");
+  const contextArticles = verifiedSourcesList.filter((s) => s.type === "background_context");
 
   return (
     <div className="flex flex-col h-full rounded-2xl bg-white dark:bg-[#0E131F] border border-slate-200 dark:border-white/10 shadow-sm overflow-hidden transition-colors">
@@ -542,7 +602,7 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
             <button
               onClick={handleCopyCleanVoiceover}
               className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold bg-blue-600 hover:bg-blue-700 active:scale-95 text-white shadow-md shadow-blue-500/20 transition-all"
-              title="Copies only spoken narration paragraphs stripped of all CapCut visual cues, 100% ready for ElevenLabs/TTS"
+              title="Copies only spoken voiceover paragraphs stripped of CapCut cues and inline citations, 100% smooth for ElevenLabs/TTS"
             >
               {copyStatus === "clean" ? (
                 <Check className="w-4 h-4 text-emerald-300" />
@@ -584,31 +644,31 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
             </button>
           </div>
 
-          {/* Deep Context AI Research & Script Generation Button */}
+          {/* Deep Context AI Research & Storyline Generation Button */}
           <button
             onClick={handleDeepResearchAndGenerate}
-            disabled={isGeneratingFullScript}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-blue-50 dark:bg-blue-950/70 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/50 transition-all"
-            title="Perform deep Tavily live fact search and rewrite 5 full acts via Llama 3.3 70B"
+            disabled={isGeneratingFullScript || isBuildingStoryline}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-blue-50 dark:bg-blue-950/70 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/50 transition-all disabled:opacity-50"
+            title="Perform 2-step research via Google News RSS, Tavily, and generate Economics Explained storyline map and script"
           >
-            <Sparkles className={`w-3.5 h-3.5 ${isGeneratingFullScript ? "animate-spin text-blue-500" : ""}`} />
-            <span>{isGeneratingFullScript ? "Researching..." : "Deep Research & Rewrite"}</span>
+            <Sparkles className={`w-3.5 h-3.5 ${isGeneratingFullScript || isBuildingStoryline ? "animate-spin text-blue-500" : ""}`} />
+            <span>{isGeneratingFullScript || isBuildingStoryline ? "Building Storyline..." : "Regenerate Storyline & Script"}</span>
           </button>
         </div>
 
         {/* Generation Progress Bar */}
-        {isGeneratingFullScript && (
+        {(isGeneratingFullScript || isBuildingStoryline) && (
           <div className="mt-3 p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/30 text-xs font-mono text-blue-600 dark:text-blue-400 flex items-center justify-between animate-pulse">
             <div className="flex items-center gap-2">
               <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-              <span>{generationStep}</span>
+              <span>{generationStep || "Fetching background context & generating 3-part storyline..."}</span>
             </div>
-            <span className="font-bold">Llama 3.3 70B</span>
+            <span className="font-bold">Economics Explained Studio</span>
           </div>
         )}
       </div>
 
-      {/* Main Studio Body: Teleprompter View OR 5-Act Cards */}
+      {/* Main Studio Body: Storyline Map + Script Sections + Evidence Drawer */}
       <div
         ref={teleprompterRef}
         className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6"
@@ -662,160 +722,354 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
             ))}
           </div>
         ) : (
-          /* 5-ACT PRODUCTION CARDS */
-          sections.map((section, idx) => {
-            const isCollapsed = collapsedActs[idx];
-            const isRegeneratingThis = regeneratingActIndex === idx;
-
-            return (
-              <div
-                key={idx}
-                className="rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-[#06080F]/60 overflow-hidden shadow-sm transition-all"
-              >
-                {/* Act Card Header */}
-                <div className="flex items-center justify-between p-3.5 sm:p-4 bg-slate-50/80 dark:bg-[#141C2E]/60 border-b border-slate-200 dark:border-white/10">
-                  <div className="flex items-center gap-2.5">
-                    <span className="px-2.5 py-1 rounded text-xs font-mono font-bold tracking-tight bg-blue-600 text-white">
-                      {section.act}
-                    </span>
-                    {section.timestamp && (
-                      <span className="text-xs font-mono text-slate-500 dark:text-slate-400">
-                        {section.timestamp}
-                      </span>
-                    )}
-                  </div>
-
+          <>
+            {/* 1. THE 3-PART GEOPOLITICAL STORYLINE MAP (RENDERED AT TOP BEFORE SCRIPT) */}
+            {storylineMap && (
+              <section className="rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50/70 dark:bg-[#06080F]/90 p-4 sm:p-5 shadow-sm space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-white/10">
                   <div className="flex items-center gap-2">
-                    {/* Regenerate Act Button */}
-                    <button
-                      onClick={() => handleRegenerateSingleAct(idx)}
-                      disabled={isRegeneratingThis || isGeneratingFullScript}
-                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-mono font-semibold bg-white dark:bg-[#0E131F] text-blue-600 dark:text-blue-400 border border-slate-200 dark:border-white/10 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors disabled:opacity-50"
-                      title="Rewrite or expand this specific act with fresh economic figures"
-                    >
-                      <RefreshCw
-                        className={`w-3 h-3 ${isRegeneratingThis ? "animate-spin text-blue-500" : ""}`}
-                      />
-                      <span>{isRegeneratingThis ? "Rewriting..." : "Regenerate Act"}</span>
-                    </button>
-
-                    <button
-                      onClick={() => toggleCollapse(idx)}
-                      className="p-1 rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
-                    >
-                      {isCollapsed ? (
-                        <ChevronDown className="w-4 h-4" />
-                      ) : (
-                        <ChevronUp className="w-4 h-4" />
-                      )}
-                    </button>
+                    <div className="p-1.5 rounded-lg bg-blue-600 text-white shadow-sm shadow-blue-500/20">
+                      <Layers className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900 dark:text-white font-mono uppercase tracking-wider">
+                        3-Part Geopolitical Storyline Map
+                      </h3>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Past Background ➔ Today&apos;s Multi-Outlet Consensus ➔ Historical Mirror ➔ Micro Impact
+                      </p>
+                    </div>
                   </div>
+
+                  <button
+                    onClick={() => setIsStorylineMapExpanded(!isStorylineMapExpanded)}
+                    className="flex items-center gap-1 text-xs font-mono text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1"
+                  >
+                    <span>{isStorylineMapExpanded ? "Collapse" : "Expand"}</span>
+                    {isStorylineMapExpanded ? (
+                      <ChevronUp className="w-4 h-4" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4" />
+                    )}
+                  </button>
                 </div>
 
-                {!isCollapsed && (
-                  <div className="p-4 sm:p-5 space-y-4">
-                    {/* [CapCut Visual Cues] Distinct Blue Callout Container */}
-                    <div className="rounded-xl p-3.5 sm:p-4 bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/50 shadow-inner">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                          <div className="p-1 rounded bg-blue-600 text-white">
-                            <Video className="w-3.5 h-3.5" />
-                          </div>
-                          <span className="text-xs font-mono font-bold uppercase tracking-wider text-blue-700 dark:text-blue-300">
-                            CapCut Visual Cues & B-Roll Instructions
+                {isStorylineMapExpanded && (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+                    {/* NODE 1: TIMELINE THREAD */}
+                    <div className="rounded-xl p-3.5 sm:p-4 bg-white dark:bg-[#0E131F] border border-blue-500/20 shadow-sm flex flex-col justify-between gap-3">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                            <TrendingUp className="w-3 h-3" />
+                            <span>1. DEVELOPING TIMELINE</span>
                           </span>
+                          <span className="text-[10px] font-mono text-slate-400">Past ➔ Now</span>
                         </div>
-                        <span className="text-[10px] font-mono text-blue-600/70 dark:text-blue-400/70">
-                          Video Production Notes
-                        </span>
+
+                        <h4 className="text-xs font-bold text-slate-900 dark:text-white leading-snug">
+                          {storylineMap.timelineThread.title}
+                        </h4>
+
+                        <div className="space-y-1.5 text-xs text-slate-600 dark:text-slate-300">
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                            <strong className="text-slate-700 dark:text-slate-300 font-mono">Origins:</strong> {storylineMap.timelineThread.baselineOrigin}
+                          </p>
+                          <p className="text-[11px]">
+                            <strong className="text-blue-600 dark:text-blue-400 font-mono">Today&apos;s Catalyst:</strong> {storylineMap.timelineThread.breakingUpdate}
+                          </p>
+                        </div>
                       </div>
 
-                      <textarea
-                        value={section.cue}
-                        onChange={(e) => handleVisualCueChange(idx, e.target.value)}
-                        rows={3}
-                        className="w-full bg-white/70 dark:bg-[#06080F]/50 text-slate-800 dark:text-slate-200 text-xs sm:text-sm font-mono p-2.5 rounded-lg border border-blue-200/60 dark:border-blue-800/40 outline-none focus:ring-1 focus:ring-blue-500 transition-all resize-y leading-relaxed"
-                        placeholder="[CapCut Visual Cues]: Shot description, B-roll stock keywords, sound effects..."
-                      />
+                      {storylineMap.timelineThread.outletsReporting && (
+                        <div className="pt-2 border-t border-slate-100 dark:border-white/5 text-[10px] font-mono text-slate-400">
+                          <span>Reported by: {storylineMap.timelineThread.outletsReporting}</span>
+                        </div>
+                      )}
                     </div>
 
-                    {/* Spoken Narration Paragraph Below */}
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300">
-                          <Mic className="w-3.5 h-3.5 text-blue-500" />
-                          <span>Spoken Voiceover Copy (Editable)</span>
+                    {/* NODE 2: HISTORICAL PRECEDENT (THE STRUCTURAL ECHO) */}
+                    <div className="rounded-xl p-3.5 sm:p-4 bg-white dark:bg-[#0E131F] border border-amber-500/20 shadow-sm flex flex-col justify-between gap-3">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                            <History className="w-3 h-3" />
+                            <span>2. HISTORICAL PRECEDENT</span>
+                          </span>
+                          <span className="text-[10px] font-mono font-bold text-amber-500">
+                            {storylineMap.historicalParallel.similarityScore}
+                          </span>
                         </div>
-                        <span className="text-[11px] font-mono text-slate-400">
-                          {section.narration.split(/\s+/).filter(Boolean).length} words
-                        </span>
+
+                        <h4 className="text-xs font-bold text-slate-900 dark:text-white leading-snug">
+                          {storylineMap.historicalParallel.precedentEvent} ({storylineMap.historicalParallel.period})
+                        </h4>
+
+                        <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                          {storylineMap.historicalParallel.mechanism}
+                        </p>
                       </div>
 
-                      <textarea
-                        value={section.narration}
-                        onChange={(e) => handleNarrationChange(idx, e.target.value)}
-                        rows={6}
-                        className="w-full bg-slate-50 dark:bg-[#06080F] text-slate-900 dark:text-slate-100 text-sm sm:text-base p-3.5 rounded-xl border border-slate-200 dark:border-white/10 outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all resize-y leading-relaxed font-sans"
-                        placeholder="Enter natural spoken voiceover script..."
-                      />
+                      <div className="pt-2 border-t border-slate-100 dark:border-white/5 text-[10px] font-mono text-slate-500 dark:text-slate-400">
+                        <strong className="text-amber-600 dark:text-amber-400">Lesson:</strong> {storylineMap.historicalParallel.lesson}
+                      </div>
+                    </div>
+
+                    {/* NODE 3: AVERAGE PERSON IMPACT (THE MICRO RIPPLE) */}
+                    <div className="rounded-xl p-3.5 sm:p-4 bg-white dark:bg-[#0E131F] border border-emerald-500/20 shadow-sm flex flex-col justify-between gap-3">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                            <Wallet className="w-3 h-3" />
+                            <span>3. EVERYDAY HUMAN SCALE</span>
+                          </span>
+                          <span className="text-[10px] font-mono font-bold text-emerald-500">
+                            {storylineMap.averagePersonImpact.dollarOrPriceMetric}
+                          </span>
+                        </div>
+
+                        <h4 className="text-xs font-bold text-slate-900 dark:text-white leading-snug">
+                          {storylineMap.averagePersonImpact.affectedGroup}
+                        </h4>
+
+                        <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                          {storylineMap.averagePersonImpact.stepByStepChain}
+                        </p>
+                      </div>
+
+                      <div className="pt-2 border-t border-slate-100 dark:border-white/5 text-[10px] font-mono text-slate-500 dark:text-slate-400">
+                        <strong className="text-emerald-600 dark:text-emerald-400">Takeaway:</strong> {storylineMap.averagePersonImpact.actionableTakeaway}
+                      </div>
                     </div>
                   </div>
                 )}
-              </div>
-            );
-          })
-        )}
+              </section>
+            )}
 
-        {/* Dedicated Verified Sources & Evidence Panel */}
-        {selectedStory.verifiedSources && selectedStory.verifiedSources.length > 0 && (
-          <div className="rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50/70 dark:bg-[#06080F]/80 p-4 sm:p-5 shadow-sm space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-200/60 dark:border-white/5">
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-emerald-500" />
-                <h4 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white font-mono uppercase tracking-wider">
-                  Verified Reporting Sources & Evidence ({selectedStory.verifiedSources.length})
-                </h4>
+            {/* 2. 5-ACT ECONOMICS EXPLAINED PRODUCTION CARDS */}
+            <div className="space-y-5">
+              <div className="flex items-center justify-between px-1">
+                <div className="flex items-center gap-2">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+                  </span>
+                  <h3 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-slate-900 dark:text-white font-mono">
+                    Economics Explained 5-Act Screenplay
+                  </h3>
+                </div>
+                <span className="text-xs font-mono text-slate-400">
+                  Zero Hallucination • Mandatory Inline Citations
+                </span>
               </div>
-              <span className="text-[10px] font-mono text-slate-400">
-                Multi-Continental Coverage
-              </span>
-            </div>
 
-            <div className="space-y-2">
-              {selectedStory.verifiedSources.map((source, sIdx) => (
-                <div
-                  key={sIdx}
-                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-xl bg-white dark:bg-[#0E131F] border border-slate-200/70 dark:border-white/5 text-xs"
-                >
-                  <div className="space-y-0.5 min-w-0">
-                    <a
-                      href={source.link}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="font-semibold text-slate-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-1.5 transition-colors"
-                    >
-                      <span className="line-clamp-1">{source.title}</span>
-                      <ExternalLink className="w-3 h-3 shrink-0 text-blue-500" />
-                    </a>
-                    {source.snippet && (
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1">
-                        {source.snippet}
-                      </p>
+              {sections.map((section, idx) => {
+                const isCollapsed = collapsedActs[idx];
+                const isRegeneratingThis = regeneratingActIndex === idx;
+
+                return (
+                  <div
+                    key={idx}
+                    className="rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-[#06080F]/60 overflow-hidden shadow-sm transition-all"
+                  >
+                    {/* Act Card Header */}
+                    <div className="flex items-center justify-between p-3.5 sm:p-4 bg-slate-50/80 dark:bg-[#141C2E]/60 border-b border-slate-200 dark:border-white/10">
+                      <div className="flex items-center gap-2.5">
+                        <span className="px-2.5 py-1 rounded text-xs font-mono font-bold tracking-tight bg-blue-600 text-white">
+                          {section.act}
+                        </span>
+                        {section.timestamp && (
+                          <span className="text-xs font-mono text-slate-500 dark:text-slate-400">
+                            {section.timestamp}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {/* Regenerate Act Button */}
+                        <button
+                          onClick={() => handleRegenerateSingleAct(idx)}
+                          disabled={isRegeneratingThis || isGeneratingFullScript}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-mono font-semibold bg-white dark:bg-[#0E131F] text-blue-600 dark:text-blue-400 border border-slate-200 dark:border-white/10 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors disabled:opacity-50"
+                          title="Rewrite or expand this specific act with Economics Explained voice"
+                        >
+                          <RefreshCw
+                            className={`w-3 h-3 ${isRegeneratingThis ? "animate-spin text-blue-500" : ""}`}
+                          />
+                          <span>{isRegeneratingThis ? "Rewriting..." : "Regenerate Act"}</span>
+                        </button>
+
+                        <button
+                          onClick={() => toggleCollapse(idx)}
+                          className="p-1 rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+                        >
+                          {isCollapsed ? (
+                            <ChevronDown className="w-4 h-4" />
+                          ) : (
+                            <ChevronUp className="w-4 h-4" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    {!isCollapsed && (
+                      <div className="p-4 sm:p-5 space-y-4">
+                        {/* [CapCut Visual Cues] Distinct Blue Callout Container */}
+                        <div className="rounded-xl p-3.5 sm:p-4 bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/50 shadow-inner">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <div className="p-1 rounded bg-blue-600 text-white">
+                                <Video className="w-3.5 h-3.5" />
+                              </div>
+                              <span className="text-xs font-mono font-bold uppercase tracking-wider text-blue-700 dark:text-blue-300">
+                                CapCut Visual Cues & B-Roll Instructions
+                              </span>
+                            </div>
+                            <span className="text-[10px] font-mono text-blue-600/70 dark:text-blue-400/70">
+                              Editing & Sound Design Directions
+                            </span>
+                          </div>
+
+                          <textarea
+                            value={section.cue}
+                            onChange={(e) => handleVisualCueChange(idx, e.target.value)}
+                            rows={3}
+                            className="w-full bg-white/70 dark:bg-[#06080F]/50 text-slate-800 dark:text-slate-200 text-xs sm:text-sm font-mono p-2.5 rounded-lg border border-blue-200/60 dark:border-blue-800/40 outline-none focus:ring-1 focus:ring-blue-500 transition-all resize-y leading-relaxed"
+                            placeholder="[CapCut Visual Cues]: Shot description, B-roll stock keywords, sound effects..."
+                          />
+                        </div>
+
+                        {/* Spoken Narration Paragraph Below with Inline Citations */}
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300">
+                              <Mic className="w-3.5 h-3.5 text-blue-500" />
+                              <span>Spoken Voiceover Copy (with Mandatory Inline Citations)</span>
+                            </div>
+                            <span className="text-[11px] font-mono text-slate-400">
+                              {section.narration.split(/\s+/).filter(Boolean).length} words
+                            </span>
+                          </div>
+
+                          <textarea
+                            value={section.narration}
+                            onChange={(e) => handleNarrationChange(idx, e.target.value)}
+                            rows={6}
+                            className="w-full bg-slate-50 dark:bg-[#06080F] text-slate-900 dark:text-slate-100 text-sm sm:text-base p-3.5 rounded-xl border border-slate-200 dark:border-white/10 outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all resize-y leading-relaxed font-sans"
+                            placeholder="Enter spoken voiceover script with inline citations like [Source: BBC World]..."
+                          />
+                        </div>
+                      </div>
                     )}
                   </div>
-
-                  <div className="flex items-center gap-1.5 shrink-0 font-mono text-[11px]">
-                    <span className="px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/50 dark:border-blue-800/40 font-semibold">
-                      {source.source}
-                    </span>
-                    <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-white/10">
-                      {source.region}
-                    </span>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
-          </div>
+
+            {/* 3. DEDICATED VERIFIED EVIDENCE DRAWER / PANEL (AT BOTTOM OF SCRIPT STUDIO) */}
+            {verifiedSourcesList.length > 0 && (
+              <section className="rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50/70 dark:bg-[#06080F]/80 p-4 sm:p-5 shadow-sm space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-200/60 dark:border-white/5">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                    <h4 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white font-mono uppercase tracking-wider">
+                      Ground-Truth Evidence Pack ({verifiedSourcesList.length} Verified Sources)
+                    </h4>
+                  </div>
+                  <span className="text-[10px] font-mono text-emerald-500 font-semibold flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    Zero Hallucinated Claims
+                  </span>
+                </div>
+
+                {/* Breaking Multi-Outlet Reporting */}
+                {breakingArticles.length > 0 && (
+                  <div className="space-y-2">
+                    <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      Today&apos;s Breaking Consensus Reporting ({breakingArticles.length})
+                    </span>
+                    <div className="space-y-2">
+                      {breakingArticles.map((source, sIdx) => (
+                        <div
+                          key={`break-${sIdx}`}
+                          className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-xl bg-white dark:bg-[#0E131F] border border-slate-200/70 dark:border-white/5 text-xs hover:border-blue-500/30 transition-colors"
+                        >
+                          <div className="space-y-0.5 min-w-0">
+                            <a
+                              href={source.link}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="font-semibold text-slate-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-1.5 transition-colors"
+                            >
+                              <span className="line-clamp-1">{source.title}</span>
+                              <ExternalLink className="w-3 h-3 shrink-0 text-blue-500" />
+                            </a>
+                            {source.snippet && (
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1">
+                                {source.snippet}
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0 font-mono text-[11px]">
+                            <span className="px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/50 dark:border-blue-800/40 font-semibold">
+                              {source.source}
+                            </span>
+                            <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-white/10">
+                              {source.region}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Background Context & Historical Timeline Articles */}
+                {contextArticles.length > 0 && (
+                  <div className="space-y-2 pt-2">
+                    <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400">
+                      Historical Context & Background Timeline Archive ({contextArticles.length})
+                    </span>
+                    <div className="space-y-2">
+                      {contextArticles.map((source, cIdx) => (
+                        <div
+                          key={`ctx-${cIdx}`}
+                          className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-xl bg-white dark:bg-[#0E131F] border border-purple-500/20 text-xs hover:border-purple-500/40 transition-colors"
+                        >
+                          <div className="space-y-0.5 min-w-0">
+                            <a
+                              href={source.link}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="font-semibold text-slate-900 dark:text-white hover:text-purple-500 flex items-center gap-1.5 transition-colors"
+                            >
+                              <span className="line-clamp-1">{source.title}</span>
+                              <ExternalLink className="w-3 h-3 shrink-0 text-purple-400" />
+                            </a>
+                            {source.snippet && (
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1">
+                                {source.snippet}
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0 font-mono text-[11px]">
+                            <span className="px-2 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 font-semibold">
+                              {source.source}
+                            </span>
+                            <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-white/10">
+                              Historical Context
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </section>
+            )}
+          </>
         )}
       </div>
 

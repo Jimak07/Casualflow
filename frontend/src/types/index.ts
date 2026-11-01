@@ -28,6 +28,40 @@ export interface VerifiedSource {
   link: string;
   pubDate?: string;
   snippet?: string;
+  type?: "breaking_consensus" | "background_context";
+}
+
+export interface StorylineMap {
+  timelineThread: {
+    title: string;
+    baselineOrigin: string; // How this story started months/years ago
+    breakingUpdate: string; // Why today's multi-outlet breaking update changes the game
+    outletsReporting?: string;
+    metricTag?: string;
+    description: string;
+  };
+  historicalParallel: {
+    title: string;
+    precedentEvent: string; // Concrete historical precedent (exact year and event)
+    period: string; // e.g. "1973–1979"
+    similarityScore: string; // e.g. "93% Structural Match"
+    mechanism: string; // The structural echo
+    lesson: string;
+    description: string;
+  };
+  averagePersonImpact: {
+    title: string;
+    affectedGroup: string;
+    stepByStepChain: string; // Step-by-step cause-and-effect chain to wallet, food prices, energy bill, or daily life
+    dollarOrPriceMetric: string;
+    actionableTakeaway: string;
+    description: string;
+  };
+}
+
+export interface EvidencePack {
+  breakingArticles: VerifiedSource[];
+  contextArticles: VerifiedSource[];
 }
 
 export interface StoryPitch {
@@ -46,6 +80,8 @@ export interface StoryPitch {
   searchQueries?: string[];
   historyShort?: string;
   verifiedSources?: VerifiedSource[];
+  storylineMap?: StorylineMap;
+  evidencePack?: EvidencePack;
   sourceCatalyst: {
     outlet: string;
     timeAgo: string;

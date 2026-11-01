@@ -10,6 +10,7 @@ import {
 import {
   generateRssConsensusPitches,
   generateFallbackScript,
+  generateFallbackStorylineAndScript,
 } from "./fallbackSynthesis.js";
 import { clusterAndScoreHeadlines } from "./clustering.js";
 
@@ -676,7 +677,344 @@ Synthesize 4 distinct, high-impact documentary pitches connecting these multi-co
   }
 });
 
-// 4. "Economics Explained" Evidence-Backed Documentary Script Engine (POST /api/script)
+// 4. "Economics Explained" Storyline Builder Engine (POST /api/storyline)
+app.post("/api/storyline", async (req: Request, res: Response) => {
+  try {
+    const {
+      cluster,
+      pitch,
+      apiKey = "",
+      groqKey = "",
+      tavilyKey = "",
+      model = "",
+      provider = "",
+    } = req.body;
+
+    const sourceData = cluster || pitch;
+    if (!sourceData) {
+      return res.status(400).json({
+        success: false,
+        error: "MISSING_DATA",
+        message: "Cluster or pitch data is required.",
+      });
+    }
+
+    const rawKey = apiKey || groqKey;
+    const aiConfig = detectAiProvider({
+      rawKey,
+      model,
+      provider,
+      purpose: "script",
+    });
+
+    // Step A: Historical Context & Developing Timeline Fetcher
+    const rawTitle = sourceData.title || "";
+    const cleanTopic = rawTitle
+      .replace(/[^\w\s-]/g, "")
+      .split(/\s+/)
+      .filter((w: string) => w.length > 2)
+      .slice(0, 5)
+      .join(" ");
+
+    const contextArticles: any[] = [];
+
+    // Query Google News RSS for background/older coverage of the core topic
+    try {
+      const gnewsUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(cleanTopic)}&hl=en-US&gl=US&ceid=US:en`;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
+      const gnewsRes = await fetch(gnewsUrl, {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+          Accept: "application/rss+xml, application/xml, text/xml, */*",
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (gnewsRes.ok) {
+        const xml = await gnewsRes.text();
+        const parsed = await rssParser.parseString(xml);
+        const olderItems = (parsed.items || []).slice(0, 5).map((item) => ({
+          title: (item.title || "").replace(/<[^>]*>?/gm, "").trim(),
+          source: (item.source as any)?._ || (item as any).creator || "Global Wire Archive",
+          region: "Historical Context",
+          link: item.link || "",
+          pubDate: item.pubDate || item.isoDate || "Background Archive",
+          snippet: (item.contentSnippet || item.summary || "")
+            .replace(/<[^>]*>?/gm, "")
+            .trim()
+            .slice(0, 200),
+          type: "background_context",
+        }));
+        contextArticles.push(...olderItems);
+      }
+    } catch (e) {
+      console.warn("Google News RSS background fetch skipped:", e);
+    }
+
+    // Tavily Search (if key provided or in process.env)
+    const effectiveTavilyKey =
+      (tavilyKey && tavilyKey.trim()) || process.env.TAVILY_API_KEY || "";
+    let tavilyNotes = "";
+
+    if (effectiveTavilyKey) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 6000);
+        const tavilyRes = await fetch("https://api.tavily.com/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+          body: JSON.stringify({
+            api_key: effectiveTavilyKey,
+            query: `${cleanTopic} background history timeline origin precedent`,
+            search_depth: "basic",
+            max_results: 3,
+          }),
+        });
+        clearTimeout(timeoutId);
+        if (tavilyRes.ok) {
+          const tavilyData = await tavilyRes.json();
+          const tavilyItems = (tavilyData.results || []).map((item: any) => ({
+            title: item.title,
+            source: "Tavily Intelligence Archive",
+            region: "Historical Context",
+            link: item.url,
+            pubDate: "Historical Record",
+            snippet: item.content?.slice(0, 220),
+            type: "background_context",
+          }));
+          contextArticles.push(...tavilyItems);
+          tavilyNotes = (tavilyData.results || [])
+            .map((r: any) => `[Historical Research Fact]: ${r.content}`)
+            .join("\n");
+        }
+      } catch (tErr) {
+        console.warn("Tavily search skipped:", tErr);
+      }
+    }
+
+    // Ground-Truth Evidence Pack
+    const breakingArticles = (sourceData.articles || sourceData.verifiedSources || []).map((a: any) => ({
+      title: a.title,
+      source: a.source,
+      region: a.region || "Global",
+      link: a.link,
+      pubDate: a.pubDate || "Today",
+      snippet: a.snippet || "",
+      type: "breaking_consensus",
+    }));
+
+    const allVerifiedSources = [...breakingArticles, ...contextArticles];
+
+    // If no AI key configured, use local fallback synthesis
+    if (!aiConfig) {
+      const fallbackResult = generateFallbackStorylineAndScript(sourceData, contextArticles);
+      return res.json({
+        success: true,
+        notice: "Notice: No AI API key provided. Generated storyline & script via local consensus engine.",
+        ...fallbackResult,
+        evidencePack: {
+          breakingArticles,
+          contextArticles,
+        },
+        verifiedSources: allVerifiedSources,
+      });
+    }
+
+    // Step B: AI Prompting with Ground-Truth Evidence Pack
+    const breakingSample = breakingArticles
+      .map(
+        (a: any, i: number) =>
+          `[Breaking Source ${i + 1}]: "${a.title}" — ${a.source} (${a.region})\nLink: ${a.link}`
+      )
+      .join("\n\n");
+
+    const contextSample = contextArticles
+      .map(
+        (a: any, i: number) =>
+          `[Background Context ${i + 1}]: "${a.title}" — ${a.source} (${a.region})\nSummary: ${a.snippet || a.title}`
+      )
+      .join("\n\n");
+
+    const systemPrompt = `You are the lead analytical scriptwriter and geopolitical macroeconomic investigator for CausalFlow (modeled after *Economics Explained* and *ColdFusion*).
+
+You are given a Ground-Truth Evidence Pack consisting of:
+1. TODAY'S BREAKING MULTI-OUTLET CONSENSUS CLUSTER (Reported across global wires like BBC, CNN, Al Jazeera, Reuters, SCMP, Punch Nigeria, etc.).
+2. HISTORICAL CONTEXT & DEVELOPING TIMELINE ARTICLES (Background Archive).
+
+YOUR MANDATE:
+Generate a structured JSON response containing:
+1. "storylineMap":
+   - "timelineThread":
+     - "title": e.g. "1. The Developing Timeline (Past Context ➔ Today's Breaking Update)"
+     - "baselineOrigin": How this crisis or situation began months or years ago (citing background events).
+     - "breakingUpdate": Today's breaking multi-outlet update and why this changes the game.
+     - "outletsReporting": The exact outlets reporting (e.g. "Punch Nigeria, The Hindu, BBC World, Al Jazeera").
+     - "metricTag": High stakes metric or volatility tag (e.g. "🚨 High Strategic Sensitivity / Kinetic Risk").
+     - "description": 2-3 sentence executive summary linking baseline to today's update.
+   - "historicalParallel":
+     - "title": e.g. "2. Geopolitical & Historical Precedent (The Structural Echo)"
+     - "precedentEvent": A concrete historical precedent with EXACT year and event (e.g. "1973 Yom Kippur Oil Shock", "1985 Plaza Accord", "1997 Asian Financial Crisis", "2006 Red Sea Crisis").
+     - "period": Exact year range (e.g. "1973–1979").
+     - "similarityScore": e.g. "93% Structural Match".
+     - "mechanism": The underlying economic, trade, military, or resource choke-point that mirrors this event.
+     - "lesson": Core strategic takeaway.
+     - "description": 2-3 sentences explaining why this precedent is structurally identical to today's crisis.
+   - "averagePersonImpact":
+     - "title": e.g. "3. Everyday Human Scale (The Micro Ripple)"
+     - "affectedGroup": Everyday citizens, commuters, grocery shoppers, small businesses, or energy consumers.
+     - "stepByStepChain": Step-by-step cause-and-effect chain: Macro event ➔ Wholesale freight/trade shock ➔ Distributor markup ➔ Everyday consumer checkout price.
+     - "dollarOrPriceMetric": e.g. "+$38/mo Average Surcharge on Grocery & Power".
+     - "actionableTakeaway": Practical hedge or action for an ordinary citizen.
+     - "description": 2-3 sentences calculating the direct ground-level ripple.
+
+2. "scriptSections":
+Write the full 5-act documentary script in the exact analytical, gripping, educational narrative tone of *Economics Explained* (~1,800 to 2,200 words total across 5 acts):
+   - "COLD OPEN // THE EVERYDAY PARADOX": Hook the viewer with a relatable ground-level observation or everyday paradox before zooming out to the global crisis (250-350 words).
+   - "ACT I // THE DEVELOPING TIMELINE (PAST CONTEXT ➔ TODAY'S BREAKING UPDATE)": Walk through the backstory and connect it directly to what BBC, CNN, Al Jazeera, Reuters, etc. are reporting today (350-450 words).
+   - "ACT II // THE GEOPOLITICAL & MACRO MECHANISM": Explain the underlying economic, military, tech, or resource choke-point in clear cause-and-effect terms, weaving in the historical parallel (400-500 words).
+   - "ACT III // HOW IT HITS THE AVERAGE PERSON": Trace the ripple effect all the way down to purchasing power, grocery bills, energy bills, jobs, or utilities (400-500 words).
+   - "OUTRO // THE MACRO VERDICT & SCOREBOARD": An *Economics Explained*-style closing assessment of what to watch over the next 6 to 12 months (250-350 words).
+
+MANDATORY CITATION & FORMATTING RULES:
+1. ZERO HALLUCINATED CLAIMS: Every statistic, policy, date, or factual claim inside the narration MUST cite its real source inline using tags like [Source: BBC World] or [Source: Al Jazeera] or [Source: Reuters] matching the provided evidence pack.
+2. Put video editing directions, B-roll stock keywords, sound design notes, and text overlays strictly inside the "cue" field prefixed with "[CAPCUT CUES]".
+
+Return strictly valid JSON with this exact structure:
+{
+  "storylineMap": {
+    "timelineThread": {
+      "title": "1. The Developing Timeline (Past Context ➔ Today's Breaking Update)",
+      "baselineOrigin": "How situation evolved months/years ago",
+      "breakingUpdate": "Today's breaking multi-outlet update",
+      "outletsReporting": "BBC World, CNN, Reuters",
+      "metricTag": "🚨 High Sensitivity",
+      "description": "Executive overview"
+    },
+    "historicalParallel": {
+      "title": "2. Geopolitical & Historical Precedent (The Structural Echo)",
+      "precedentEvent": "Exact Precedent Event Name (Year)",
+      "period": "1973–1979",
+      "similarityScore": "93% Structural Match",
+      "mechanism": "Structural supply chain / monetary mechanism",
+      "lesson": "Strategic economic lesson",
+      "description": "Detailed explanation of historical echo"
+    },
+    "averagePersonImpact": {
+      "title": "3. Everyday Human Scale (The Micro Ripple)",
+      "affectedGroup": "Households, commuters & everyday consumers",
+      "stepByStepChain": "Macro shock ➔ Shipping surcharge ➔ Wholesale repricing ➔ Retail checkout cost",
+      "dollarOrPriceMetric": "+$38/mo Average Surcharge",
+      "actionableTakeaway": "Hedge energy costs and audit utilities",
+      "description": "Ground level impact"
+    }
+  },
+  "scriptSections": [
+    {
+      "act": "COLD OPEN // THE EVERYDAY PARADOX",
+      "cue": "[CAPCUT CUES]\\n• Opening B-roll montage, drone shots, sound effects",
+      "narration": "Spoken voiceover copy with inline citations [Source: ...]"
+    },
+    {
+      "act": "ACT I // THE DEVELOPING TIMELINE (PAST CONTEXT ➔ TODAY'S BREAKING UPDATE)",
+      "cue": "[CAPCUT CUES]\\n• News broadcast split screen, timeline animation",
+      "narration": "Timeline voiceover copy with inline citations [Source: ...]"
+    },
+    {
+      "act": "ACT II // THE GEOPOLITICAL & MACRO MECHANISM",
+      "cue": "[CAPCUT CUES]\\n• Archival footage, supply chain flowchart",
+      "narration": "Mechanism voiceover copy with inline citations [Source: ...]"
+    },
+    {
+      "act": "ACT III // HOW IT HITS THE AVERAGE PERSON",
+      "cue": "[CAPCUT CUES]\\n• Close-up of receipts, meters, purchasing power charts",
+      "narration": "Human impact voiceover copy with inline citations [Source: ...]"
+    },
+    {
+      "act": "OUTRO // THE MACRO VERDICT & SCOREBOARD",
+      "cue": "[CAPCUT CUES]\\n• Closing cinematic drone shots, summary infographic",
+      "narration": "Closing assessment with inline citations [Source: ...]"
+    }
+  ]
+}`;
+
+    const userPrompt = `BREAKING NEWS CLUSTER:
+TITLE: ${sourceData.title}
+SUMMARY: ${sourceData.summary || ""}
+CATEGORY: ${sourceData.primaryNiche || sourceData.category || "Geopolitics"}
+REPORTING OUTLETS: ${(sourceData.outlets || []).join(", ") || "Global Wires"}
+REGIONS: ${(sourceData.regions || []).join(", ") || "Global"}
+CONSENSUS: ${sourceData.consensusBadge || "Multi-outlet verification"}
+
+GROUND-TRUTH EVIDENCE PACK:
+
+TODAY'S BREAKING MULTI-OUTLET REPORTING:
+${breakingSample || "Live feeds across global outlets"}
+
+HISTORICAL CONTEXT & DEVELOPING TIMELINE (Background Articles):
+${contextSample || "Background geopolitical and economic context"}
+
+${tavilyNotes ? `VERIFIED HISTORICAL RESEARCH NOTES:\n${tavilyNotes}\n` : ""}
+
+Generate the complete 3-Part Geopolitical Storyline Map and the full 5-Act Economics Explained Script with inline source citations.`;
+
+    let parsed: any;
+    let isFallbackMode = false;
+    let fallbackNotice = "";
+
+    try {
+      parsed = await callUniversalAi({
+        config: aiConfig,
+        systemPrompt,
+        userPrompt,
+        maxTokens: 4800,
+        temperature: 0.72,
+      });
+    } catch (aiError: any) {
+      console.warn(
+        `[CausalFlow Backend] Storyline generation AI gateway error (${aiError.message}). Activating local fallback engine...`
+      );
+      isFallbackMode = true;
+      fallbackNotice = "Notice: Upstream AI gateway is busy (502). Generated storyline map & script via local consensus engine.";
+      parsed = generateFallbackStorylineAndScript(sourceData, contextArticles);
+    }
+
+    res.json({
+      success: true,
+      storylineMap: parsed.storylineMap,
+      scriptSections: parsed.scriptSections || parsed.sections || [],
+      evidencePack: {
+        breakingArticles,
+        contextArticles,
+      },
+      verifiedSources: allVerifiedSources,
+      provider: isFallbackMode ? "Autonomous Storyline Fallback Engine" : aiConfig.providerLabel,
+      model: isFallbackMode ? "Local Economics Screenwriter" : (parsed._usedModel || aiConfig.model),
+      isFallback: isFallbackMode,
+      notice: fallbackNotice || undefined,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error("Storyline API error:", error);
+    const fallbackResult = generateFallbackStorylineAndScript(req.body?.cluster || req.body?.pitch || {});
+    res.json({
+      success: true,
+      notice: "Notice: Upstream AI gateway error. Generated storyline & script via local consensus engine.",
+      ...fallbackResult,
+      evidencePack: {
+        breakingArticles: req.body?.cluster?.articles || [],
+        contextArticles: [],
+      },
+      verifiedSources: req.body?.cluster?.articles || [],
+      generatedAt: new Date().toISOString(),
+    });
+  }
+});
+
+// 5. "Economics Explained" Evidence-Backed Documentary Script Engine (POST /api/script)
 app.post("/api/script", async (req: Request, res: Response) => {
   try {
     const {

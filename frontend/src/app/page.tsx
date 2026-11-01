@@ -42,6 +42,7 @@ export default function Home() {
 
   // Loading state (No LLM required to load news!)
   const [isScanning, setIsScanning] = useState(false);
+  const [isBuildingStoryline, setIsBuildingStoryline] = useState(false);
   const [totalHeadlinesCount, setTotalHeadlinesCount] = useState<number>(0);
 
   // Toast notification state
@@ -351,21 +352,94 @@ export default function Home() {
     return result;
   }, [clusters, activeNiche, searchQuery, sortMode]);
 
-  // Handle "Build Documentary Storyline →"
-  const handleBuildStoryline = (cluster: ClusteredNewsEvent) => {
+  // Handle "Build Documentary Storyline →" (2-Step Intelligence Pipeline)
+  const handleBuildStoryline = async (cluster: ClusteredNewsEvent) => {
     const pitch = mapClusterToPitch(cluster);
     setSelectedStory(pitch);
     setSelectedClusterId(cluster.id);
 
-    // Switch view to Script Studio on mobile
-    if (window.innerWidth < 1024) {
-      setMobileActiveTab("studio");
+    // Switch view to Script Studio immediately on both mobile and desktop
+    setMobileActiveTab("studio");
+
+    // Scroll to studio column smoothly
+    if (typeof window !== "undefined") {
+      const studioEl = document.getElementById("script-studio-panel");
+      if (studioEl) {
+        studioEl.scrollIntoView({ behavior: "smooth" });
+      }
     }
 
+    // Retrieve user's API key from localStorage
+    let groqKey = "";
+    let tavilyKey = "";
+    let model = "";
+    let provider = "";
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("causalflow_api_keys");
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          groqKey = parsed.apiKey || parsed.groqKey || "";
+          tavilyKey = parsed.tavilyKey || "";
+          model = parsed.model || "";
+          provider = parsed.provider || "";
+        } catch (e) {
+          console.error("Failed to parse api keys", e);
+        }
+      }
+    }
+
+    setIsBuildingStoryline(true);
     showToast(
-      `✓ Loaded "${cluster.title.slice(0, 42)}..." into Script Studio! Click "Generate 5-Act Script" to begin voiceover generation.`,
-      "success"
+      `Building Storyline Map & Economics Explained Script for "${cluster.title.slice(0, 36)}..."`,
+      "info"
     );
+
+    try {
+      const res = await fetch(API_ENDPOINTS.storyline, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cluster,
+          apiKey: groqKey,
+          groqKey,
+          tavilyKey,
+          model,
+          provider,
+        }),
+      });
+
+      const data = await res.json();
+      if (data && data.success) {
+        const updatedPitch: StoryPitch = {
+          ...pitch,
+          storylineMap: data.storylineMap,
+          verifiedSources: data.verifiedSources || pitch.verifiedSources,
+          evidencePack: data.evidencePack,
+          script: {
+            sections: data.scriptSections,
+          },
+        };
+        setSelectedStory(updatedPitch);
+        localStorage.setItem(`causalflow_script_${updatedPitch.id}`, JSON.stringify(data.scriptSections));
+        localStorage.setItem(`causalflow_storyline_${updatedPitch.id}`, JSON.stringify(data.storylineMap));
+
+        showToast(
+          data.isFallback
+            ? `✓ Built Storyline Map & 5-Act Script via Consensus Engine!`
+            : `✓ Built 3-Part Storyline Map & Economics Explained Script via ${data.model || "AI"}!`,
+          "success"
+        );
+      }
+    } catch (err: any) {
+      console.error("Failed to build storyline:", err);
+      showToast(
+        "Loaded cluster into Studio. You can generate or edit the script directly.",
+        "info"
+      );
+    } finally {
+      setIsBuildingStoryline(false);
+    }
   };
 
   // Update story script from ScriptStudio edits
@@ -558,6 +632,7 @@ export default function Home() {
 
           {/* RIGHT COLUMN: Block-Based Documentary Script Studio */}
           <div
+            id="script-studio-panel"
             className={`lg:col-span-7 h-full min-h-[600px] lg:sticky lg:top-20 ${
               mobileActiveTab === "studio" ? "block" : "hidden lg:block"
             }`}
@@ -567,6 +642,7 @@ export default function Home() {
               onUpdateStoryScript={handleUpdateStoryScript}
               onResetStoryScript={handleResetStoryScript}
               onOpenApiKeys={() => setIsApiKeysOpen(true)}
+              isBuildingStoryline={isBuildingStoryline}
             />
           </div>
         </div>

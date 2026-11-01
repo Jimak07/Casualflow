@@ -9,6 +9,7 @@ export const API_BASE_URL =
 export const API_ENDPOINTS = {
   radar: `${API_BASE_URL}/api/radar`,
   synthesize: `${API_BASE_URL}/api/synthesize`,
+  storyline: `${API_BASE_URL}/api/storyline`,
   script: `${API_BASE_URL}/api/script`,
   models: `${API_BASE_URL}/api/models`,
   health: `${API_BASE_URL}/health`,
