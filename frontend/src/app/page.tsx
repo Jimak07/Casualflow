@@ -392,7 +392,7 @@ export default function Home() {
         synthData.model ||
         (model && model !== "auto" && model !== "hybrid"
           ? model
-          : "deepseek-v4-flash");
+          : "gemini-3.1-flash-lite");
 
       showToast(
         `✓ Autonomous Dot-Connector clustered live global news into ${mappedPitches.length} pitches via ${usedModel}!`,

@@ -13,11 +13,43 @@ export interface DetectProviderOptions {
   purpose?: "synthesize" | "script";
 }
 
+export interface ModelOption {
+  id: string;
+  label: string;
+  tag?: string;
+  isDefault?: boolean;
+}
+
+// Ordered fallback list of reliable active Vyce AI models
+export const VYCE_FALLBACK_MODELS = [
+  "gemini-3.1-flash-lite",
+  "claude-haiku-4-5",
+  "nemotron-ultra-550b",
+  "claude-sonnet-4-6",
+  "gpt-5.6-luna",
+];
+
+// Curated active models for Vyce AI
 export const VYCE_MODELS = [
   {
     id: "hybrid",
-    label: "Pro Studio Hybrid (deepseek-v4-flash + claude-sonnet-4-6)",
-    description: "DeepSeek V4 Flash for radar news synthesis + Claude Sonnet 4.6 for documentary voiceovers",
+    label: "Auto (Smart Fallback: Gemini Flash / Claude Sonnet)",
+    description: "Gemini 3.1 Flash Lite for rapid news synthesis + Claude Sonnet 4.6 for documentary voiceovers",
+  },
+  {
+    id: "gemini-3.1-flash-lite",
+    label: "Gemini 3.1 Flash Lite",
+    description: "Ultra-fast, robust 1M context default for multi-continental radar synthesis",
+  },
+  {
+    id: "claude-haiku-4-5",
+    label: "Claude Haiku 4.5",
+    description: "Fast, highly structured causal reasoning and outline synthesis",
+  },
+  {
+    id: "nemotron-ultra-550b",
+    label: "Nemotron Ultra 550B",
+    description: "Massive scale macroeconomic causality & multi-variable analysis",
   },
   {
     id: "claude-sonnet-4-6",
@@ -25,9 +57,9 @@ export const VYCE_MODELS = [
     description: "Flagship cinematic documentary screenwriter & historical depth",
   },
   {
-    id: "deepseek-v4-flash",
-    label: "DeepSeek V4 Flash",
-    description: "Default for live headline scanning, 1M context, high speed",
+    id: "gpt-5.6-luna",
+    label: "GPT-5.6 Luna",
+    description: "Balanced, high-precision GPT reasoning fallback",
   },
   {
     id: "deepseek-v4.1",
@@ -45,6 +77,154 @@ export const VYCE_MODELS = [
     description: "Lightweight free model for instant turnaround",
   },
 ];
+
+/**
+ * Fetch list of online active models dynamically from Vyce AI /v1/models
+ */
+export async function fetchVyceModels(apiKey: string): Promise<string[]> {
+  try {
+    const vyceBase = (process.env.OPENAI_BASE_URL || "https://vyceai.com/v1").replace(/\/$/, "");
+    const res = await fetch(`${vyceBase}/models`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!res.ok) {
+      console.warn(`[Vyce AI] /v1/models returned HTTP ${res.status}`);
+      return [];
+    }
+
+    const data = await res.json();
+    const list: any[] = Array.isArray(data) ? data : data.data || data.models || [];
+    return list
+      .map((m: any) => (typeof m === "string" ? m : m.id))
+      .filter((id): id is string => typeof id === "string" && id.length > 0);
+  } catch (e: any) {
+    console.warn("[Vyce AI] Failed to fetch active models dynamically:", e.message || e);
+    return [];
+  }
+}
+
+/**
+ * Fetch available model options for any configured provider
+ */
+export async function getAvailableModelsForProvider(config: AiProviderConfig): Promise<ModelOption[]> {
+  if (config.provider === "vyce") {
+    const onlineIds = await fetchVyceModels(config.apiKey);
+    const modelOptions: ModelOption[] = [
+      {
+        id: "hybrid",
+        label: "Auto (Smart Fallback: Gemini Flash / Claude Sonnet)",
+        tag: "Recommended",
+        isDefault: true,
+      },
+    ];
+
+    const curatedMap = new Map<string, { label: string; tag: string }>();
+    curatedMap.set("gemini-3.1-flash-lite", { label: "gemini-3.1-flash-lite (Active / Ultra-Fast)", tag: "Active" });
+    curatedMap.set("claude-haiku-4-5", { label: "claude-haiku-4-5 (Active / Structured)", tag: "Active" });
+    curatedMap.set("nemotron-ultra-550b", { label: "nemotron-ultra-550b (Active / 550B Reasoning)", tag: "Active" });
+    curatedMap.set("claude-sonnet-4-6", { label: "claude-sonnet-4-6 (Active / Cinematic Screenplay)", tag: "Active" });
+    curatedMap.set("gpt-5.6-luna", { label: "gpt-5.6-luna (Active / Balanced)", tag: "Active" });
+    curatedMap.set("deepseek-v4.1", { label: "deepseek-v4.1 (Macro Reasoning)", tag: "Active" });
+    curatedMap.set("beam-1.0", { label: "beam-1.0 (Free Promo Pool)", tag: "Free" });
+    curatedMap.set("agnes-3.0-flash", { label: "agnes-3.0-flash (Free)", tag: "Free" });
+
+    const seenIds = new Set<string>(["hybrid"]);
+
+    // If online models returned from API, add them first
+    if (onlineIds.length > 0) {
+      for (const id of onlineIds) {
+        if (!seenIds.has(id)) {
+          seenIds.add(id);
+          const curated = curatedMap.get(id);
+          modelOptions.push({
+            id,
+            label: curated ? curated.label : `${id} (Online)`,
+            tag: curated ? curated.tag : "Online",
+          });
+        }
+      }
+    }
+
+    // Ensure all known reliable fallback models are included
+    for (const [id, meta] of curatedMap.entries()) {
+      if (!seenIds.has(id)) {
+        seenIds.add(id);
+        modelOptions.push({
+          id,
+          label: meta.label,
+          tag: meta.tag,
+        });
+      }
+    }
+
+    return modelOptions;
+  }
+
+  if (config.provider === "groq") {
+    try {
+      const res = await fetch("https://api.groq.com/openai/v1/models", {
+        headers: { Authorization: `Bearer ${config.apiKey}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const list: any[] = data.data || [];
+        const ids = list.map((m: any) => m.id).filter(Boolean);
+        return [
+          { id: "auto", label: "Auto (Smart Fallback)", isDefault: true },
+          ...ids.map((id: string) => ({ id, label: id })),
+        ];
+      }
+    } catch {}
+    return [
+      { id: "auto", label: "Auto (Smart Fallback)", isDefault: true },
+      { id: "llama-3.3-70b-versatile", label: "llama-3.3-70b-versatile (Recommended)" },
+      { id: "llama-3.1-8b-instant", label: "llama-3.1-8b-instant" },
+      { id: "mixtral-8x7b-32768", label: "mixtral-8x7b-32768" },
+    ];
+  }
+
+  if (config.provider === "gemini") {
+    return [
+      { id: "auto", label: "Auto (Smart Fallback)", isDefault: true },
+      { id: "gemini-2.5-flash", label: "gemini-2.5-flash (Recommended)" },
+      { id: "gemini-2.0-flash", label: "gemini-2.0-flash" },
+      { id: "gemini-1.5-flash", label: "gemini-1.5-flash" },
+      { id: "gemini-1.5-pro", label: "gemini-1.5-pro" },
+    ];
+  }
+
+  if (config.provider === "openrouter") {
+    try {
+      const res = await fetch("https://openrouter.ai/api/v1/models", {
+        headers: { Authorization: `Bearer ${config.apiKey}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const list: any[] = (data.data || []).slice(0, 30);
+        return [
+          { id: "auto", label: "Auto (Smart Fallback)", isDefault: true },
+          ...list.map((m: any) => ({ id: m.id, label: m.name || m.id })),
+        ];
+      }
+    } catch {}
+    return [
+      { id: "auto", label: "Auto (Smart Fallback)", isDefault: true },
+      { id: "meta-llama/llama-3.3-70b-instruct:free", label: "meta-llama/llama-3.3-70b-instruct:free" },
+      { id: "google/gemini-2.0-flash-lite-preview-02-05:free", label: "google/gemini-2.0-flash-lite-preview-02-05:free" },
+    ];
+  }
+
+  return [
+    { id: "auto", label: "Auto (Smart Fallback)", isDefault: true },
+    { id: "gpt-4o-mini", label: "gpt-4o-mini (Recommended)" },
+    { id: "gpt-4o", label: "gpt-4o" },
+  ];
+}
 
 /**
  * Auto-detects AI Provider based on API key prefix, environment variables, or selection:
@@ -144,9 +324,9 @@ export function detectAiProvider(
 
   // 5. Vyce AI Gateway:
   // Pro Studio Hybrid setup:
-  // - /api/synthesize -> deepseek-v4-flash
-  // - /api/script -> claude-sonnet-4-6
-  // Or explicitly selected model: deepseek-v4-flash, deepseek-v4.1, beam-1.0, agnes-3.0-flash, claude-sonnet-4-6
+  // - /api/synthesize -> gemini-3.1-flash-lite (Active & Fast)
+  // - /api/script -> claude-sonnet-4-6 (Active & Cinematic)
+  // Or explicitly selected model from settings
   const vyceBase = (process.env.OPENAI_BASE_URL || "https://vyceai.com/v1").replace(
     /\/$/,
     ""
@@ -164,7 +344,8 @@ export function detectAiProvider(
   if (!isHybridOrAuto) {
     vyceModel = requestedModel;
   } else if (purpose === "synthesize") {
-    vyceModel = "deepseek-v4-flash";
+    // Default to gemini-3.1-flash-lite as deepseek-v4-flash is disabled upstream
+    vyceModel = "gemini-3.1-flash-lite";
   } else {
     vyceModel = "claude-sonnet-4-6";
   }
@@ -183,7 +364,7 @@ export function detectAiProvider(
  */
 export function cleanJsonOutput(text: string): string {
   let cleaned = text.trim();
-  const fenceMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+  const fenceMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
   if (fenceMatch) {
     cleaned = fenceMatch[1].trim();
   }
@@ -196,14 +377,65 @@ export function cleanJsonOutput(text: string): string {
 }
 
 /**
- * Universal OpenAI-compatible chat completion caller with automatic fallback
- * if response_format: { type: "json_object" } is not supported by the model/gateway.
+ * Strips markdown code fences, removes unescaped control chars, and safely parses JSON
+ */
+export function cleanAndParseJson<T = any>(text: string): T {
+  const cleaned = cleanJsonOutput(text);
+  try {
+    return JSON.parse(cleaned);
+  } catch (err: any) {
+    // Attempt relaxed cleanup for trailing commas or bad whitespace
+    try {
+      const sanitized = cleaned
+        .replace(/,\s*([\]}])/g, "$1") // Remove trailing commas
+        .replace(/[\x00-\x09\x0B-\x1F\x7F]/g, ""); // Remove non-printable control chars
+      return JSON.parse(sanitized);
+    } catch {
+      throw new Error(
+        `Failed to parse JSON response: ${err.message}. Raw output snippet: ${text.slice(0, 250)}`
+      );
+    }
+  }
+}
+
+function isModelDisabledError(status: number, errorText: string): boolean {
+  const lower = errorText.toLowerCase();
+  return (
+    lower.includes("model_disabled") ||
+    lower.includes("model is temporarily disabled") ||
+    lower.includes("model temporarily disabled") ||
+    lower.includes("model_not_found") ||
+    lower.includes("does not exist") ||
+    lower.includes("unsupported model") ||
+    lower.includes("disabled") ||
+    status === 404 ||
+    status === 503 ||
+    (status === 500 && (lower.includes("model") || lower.includes("server_error")))
+  );
+}
+
+function isFormatError(errorText: string): boolean {
+  const lower = errorText.toLowerCase();
+  return (
+    lower.includes("response_format") ||
+    lower.includes("json_object") ||
+    lower.includes("json mode") ||
+    lower.includes("unsupported response_format") ||
+    lower.includes("schema")
+  );
+}
+
+/**
+ * Universal OpenAI-compatible chat completion caller with automatic fallback:
+ * 1. Checks and handles response_format: { type: "json_object" } rejection gracefully
+ * 2. Implements automatic model fallback chain for Vyce AI and all providers when a model is disabled or fails
+ * 3. Strips markdown fences (```json ... ```) and parses JSON robustly
  */
 export async function callUniversalAi({
   config,
   systemPrompt,
   userPrompt,
-  maxTokens = 4000,
+  maxTokens = 4200,
   temperature = 0.7,
 }: {
   config: AiProviderConfig;
@@ -222,67 +454,150 @@ export async function callUniversalAi({
     headers["X-Title"] = "CausalFlow Documentary Intelligence";
   }
 
-  const buildBody = (withJsonFormat: boolean) => {
-    const body: any = {
-      model: config.model,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      temperature,
-      max_tokens: maxTokens,
+  // Helper to attempt calling a single model, with fallback for response_format
+  const attemptCall = async (modelToUse: string): Promise<{ data: any; usedModel: string }> => {
+    const buildBody = (withJsonFormat: boolean) => {
+      const body: any = {
+        model: modelToUse,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature,
+        max_tokens: maxTokens,
+      };
+      if (withJsonFormat) {
+        body.response_format = { type: "json_object" };
+      }
+      return body;
     };
-    if (withJsonFormat) {
-      body.response_format = { type: "json_object" };
+
+    // Step 1: Try with response_format: { type: "json_object" }
+    let res = await fetch(config.endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(buildBody(true)),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      // If error is about response_format, immediately retry without response_format
+      if (isFormatError(errText)) {
+        console.warn(
+          `[${config.providerLabel}] Model ${modelToUse} rejected response_format. Retrying without it...`
+        );
+        const retryRes = await fetch(config.endpoint, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(buildBody(false)),
+        });
+
+        if (retryRes.ok) {
+          const json = await retryRes.json();
+          const content = json.choices?.[0]?.message?.content;
+          if (!content) throw new Error("Empty content returned from model.");
+          return { data: cleanAndParseJson(content), usedModel: modelToUse };
+        } else {
+          const retryErrText = await retryRes.text();
+          throw { status: retryRes.status, errorText: retryErrText, model: modelToUse };
+        }
+      }
+
+      throw { status: res.status, errorText: errText, model: modelToUse };
     }
-    return body;
+
+    const json = await res.json();
+    const content = json.choices?.[0]?.message?.content;
+    if (!content) throw new Error("Empty content returned from model.");
+    return { data: cleanAndParseJson(content), usedModel: modelToUse };
   };
 
-  let response = await fetch(config.endpoint, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(buildBody(true)),
-  });
+  // Try the primary model first
+  try {
+    const result = await attemptCall(config.model);
+    return { ...result.data, _usedModel: result.usedModel };
+  } catch (initialErr: any) {
+    const { status = 500, errorText = initialErr.message || "", model = config.model } = initialErr;
+    console.warn(
+      `[${config.providerLabel}] Model "${model}" failed (${status}): ${errorText.slice(0, 160)}`
+    );
 
-  // Gracefully fallback if the model/gateway doesn't support response_format: { type: "json_object" }
-  if (!response.ok) {
-    const errorText = await response.text();
-    const isFormatError =
-      errorText.toLowerCase().includes("response_format") ||
-      errorText.toLowerCase().includes("json_object") ||
-      response.status === 400;
+    // Check if this is a model failure that warrants triggering fallback
+    const shouldFallback =
+      isModelDisabledError(status, errorText) ||
+      status === 400 ||
+      status === 404 ||
+      status === 500 ||
+      status === 503;
 
-    if (isFormatError) {
-      console.warn(
-        `[${config.providerLabel}] Retrying without response_format due to gateway error: ${errorText.slice(0, 150)}`
+    if (!shouldFallback) {
+      throw new Error(`[${config.providerLabel}] Request failed (${status}): ${errorText.slice(0, 300)}`);
+    }
+
+    // Determine fallback models
+    let fallbackCandidates: string[] = [];
+    if (config.provider === "vyce") {
+      // 1. Fetch live active models from Vyce API if possible
+      const liveVyceModels = await fetchVyceModels(config.apiKey);
+
+      // 2. Ordered priority list from user instructions
+      const userPriority = [
+        "gemini-3.1-flash-lite",
+        "claude-haiku-4-5",
+        "nemotron-ultra-550b",
+        "claude-sonnet-4-6",
+        "gpt-5.6-luna",
+      ];
+
+      // Combine user priority with any newly discovered live models
+      const combined = [...userPriority];
+      for (const m of liveVyceModels) {
+        if (!combined.includes(m)) {
+          combined.push(m);
+        }
+      }
+
+      fallbackCandidates = combined.filter((m) => m !== model);
+    } else if (config.provider === "groq") {
+      fallbackCandidates = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"].filter(
+        (m) => m !== model
       );
-      const retryResponse = await fetch(config.endpoint, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(buildBody(false)),
-      });
+    } else if (config.provider === "gemini") {
+      fallbackCandidates = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"].filter(
+        (m) => m !== model
+      );
+    } else if (config.provider === "openrouter") {
+      fallbackCandidates = [
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "google/gemini-2.0-flash-lite-preview-02-05:free",
+      ].filter((m) => m !== model);
+    }
 
-      if (retryResponse.ok) {
-        response = retryResponse;
-      } else {
-        const retryErr = await retryResponse.text();
-        throw new Error(
-          `[${config.providerLabel}] Request failed (${retryResponse.status}): ${retryErr.slice(0, 300)}`
+    if (fallbackCandidates.length === 0) {
+      throw new Error(`[${config.providerLabel}] Request failed (${status}): ${errorText.slice(0, 300)}`);
+    }
+
+    console.log(
+      `[${config.providerLabel}] Initiating automatic fallback chain across: ${fallbackCandidates.join(", ")}`
+    );
+
+    let lastError = errorText;
+    for (const candidate of fallbackCandidates) {
+      try {
+        console.log(`[${config.providerLabel}] Trying fallback model: ${candidate}...`);
+        const fallbackRes = await attemptCall(candidate);
+        console.log(`[${config.providerLabel}] ✓ Fallback successful with: ${candidate}`);
+        return { ...fallbackRes.data, _usedModel: candidate };
+      } catch (fbErr: any) {
+        lastError = fbErr.errorText || fbErr.message || "";
+        console.warn(
+          `[${config.providerLabel}] Fallback candidate "${candidate}" failed: ${lastError.slice(0, 120)}`
         );
       }
-    } else {
-      throw new Error(
-        `[${config.providerLabel}] Request failed (${response.status}): ${errorText.slice(0, 300)}`
-      );
     }
-  }
 
-  const data = await response.json();
-  const rawContent = data.choices?.[0]?.message?.content;
-  if (!rawContent) {
-    throw new Error(`[${config.providerLabel}] Returned empty response content.`);
+    throw new Error(
+      `[${config.providerLabel}] All models in fallback chain failed. Primary model error: ${errorText.slice(0, 200)} | Last fallback error: ${lastError.slice(0, 200)}`
+    );
   }
-
-  const cleaned = cleanJsonOutput(rawContent);
-  return JSON.parse(cleaned);
 }

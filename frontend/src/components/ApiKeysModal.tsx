@@ -12,13 +12,22 @@ import {
   Sparkles,
   Bot,
   Layers,
+  RefreshCw,
 } from "lucide-react";
 import { ApiKeysConfig } from "@/types";
+import { API_ENDPOINTS } from "@/lib/api";
 
 interface ApiKeysModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSaveKeys: (keys: ApiKeysConfig) => void;
+}
+
+export interface ModelOption {
+  id: string;
+  label: string;
+  tag?: string;
+  isDefault?: boolean;
 }
 
 const DEFAULT_CONFIG: ApiKeysConfig = {
@@ -30,32 +39,48 @@ const DEFAULT_CONFIG: ApiKeysConfig = {
   provider: "auto",
 };
 
-// Exact unlocked models on user's Vyce AI account
-const VYCE_MODELS = [
+// Initial reliable default model list
+const DEFAULT_FALLBACK_MODELS: ModelOption[] = [
   {
     id: "hybrid",
-    label: "Hybrid Default (deepseek-v4-flash + claude-sonnet-4-6)",
-    tag: "Studio Pro",
+    label: "Auto (Smart Fallback: Gemini Flash / Claude Sonnet)",
+    tag: "Recommended",
+    isDefault: true,
+  },
+  {
+    id: "gemini-3.1-flash-lite",
+    label: "gemini-3.1-flash-lite (Active / Ultra-Fast 1M Context)",
+    tag: "Active",
+  },
+  {
+    id: "claude-haiku-4-5",
+    label: "claude-haiku-4-5 (Active / High-Speed Structured)",
+    tag: "Active",
+  },
+  {
+    id: "nemotron-ultra-550b",
+    label: "nemotron-ultra-550b (Active / 550B Macro Reasoning)",
+    tag: "Active",
   },
   {
     id: "claude-sonnet-4-6",
-    label: "claude-sonnet-4-6 (Cinematic 5-Act Documentary Scriptwriting)",
-    tag: "Flagship",
+    label: "claude-sonnet-4-6 (Active / Flagship Cinematic Screenplay)",
+    tag: "Active",
   },
   {
-    id: "deepseek-v4-flash",
-    label: "deepseek-v4-flash (Fast & Cost-Efficient 1M Context Synthesis)",
-    tag: "Fast / 1M",
+    id: "gpt-5.6-luna",
+    label: "gpt-5.6-luna (Active / Balanced Precision)",
+    tag: "Active",
   },
   {
     id: "deepseek-v4.1",
-    label: "deepseek-v4.1 (Deep Macro-Causal Pattern Analysis)",
-    tag: "Reasoning",
+    label: "deepseek-v4.1 (Macro Reasoning)",
+    tag: "Active",
   },
   {
     id: "beam-1.0",
-    label: "beam-1.0 (Free 10M/day promo pool)",
-    tag: "Free Promo",
+    label: "beam-1.0 (Free 10M Promo Pool)",
+    tag: "Free",
   },
   {
     id: "agnes-3.0-flash",
@@ -71,6 +96,10 @@ export const ApiKeysModal: React.FC<ApiKeysModalProps> = ({
 }) => {
   const [config, setConfig] = useState<ApiKeysConfig>(DEFAULT_CONFIG);
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [availableModels, setAvailableModels] = useState<ModelOption[]>(DEFAULT_FALLBACK_MODELS);
+  const [isFetchingModels, setIsFetchingModels] = useState(false);
+  const [modelsFetchStatus, setModelsFetchStatus] = useState<string | null>(null);
+  const [customModelInput, setCustomModelInput] = useState(false);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -78,14 +107,21 @@ export const ApiKeysModal: React.FC<ApiKeysModalProps> = ({
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
+          const initialKey = parsed.apiKey || parsed.groqKey || "";
+          const initialProvider = parsed.provider || "auto";
           setConfig({
             ...DEFAULT_CONFIG,
             ...parsed,
-            apiKey: parsed.apiKey || parsed.groqKey || "",
-            groqKey: parsed.apiKey || parsed.groqKey || "",
+            apiKey: initialKey,
+            groqKey: initialKey,
             model: parsed.model || "hybrid",
-            provider: parsed.provider || "auto",
+            provider: initialProvider,
           });
+
+          // If key exists, auto-fetch online models
+          if (initialKey && isOpen) {
+            fetchOnlineModels(initialKey, initialProvider);
+          }
         } catch (e) {
           console.error("Failed to load saved api keys", e);
         }
@@ -169,7 +205,7 @@ export const ApiKeysModal: React.FC<ApiKeysModalProps> = ({
     const currentModelLabel =
       config.model && config.model !== "auto" && config.model !== "hybrid"
         ? config.model
-        : "Hybrid (deepseek-v4-flash + claude-sonnet-4-6)";
+        : "Auto (Smart Fallback: Gemini Flash / Claude Sonnet)";
 
     return {
       provider: "vyce",
@@ -184,7 +220,36 @@ export const ApiKeysModal: React.FC<ApiKeysModalProps> = ({
 
   const detected = getProviderInfo(activeKey, selectedProvider);
   const DetectedIcon = detected.icon;
-  const isVyceActive = detected.provider === "vyce" || selectedProvider === "vyce";
+
+  const fetchOnlineModels = async (keyToUse?: string, providerToUse?: string) => {
+    const k = (keyToUse ?? activeKey).trim();
+    const p = providerToUse ?? selectedProvider;
+    if (!k) {
+      setModelsFetchStatus("Enter your API key first to query online models");
+      return;
+    }
+
+    setIsFetchingModels(true);
+    setModelsFetchStatus(null);
+
+    try {
+      const url = `${API_ENDPOINTS.models}?apiKey=${encodeURIComponent(k)}&provider=${encodeURIComponent(p)}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (data.models && Array.isArray(data.models) && data.models.length > 0) {
+        setAvailableModels(data.models);
+        setModelsFetchStatus(`✓ ${data.models.length} active models loaded for ${data.providerLabel || data.provider}`);
+      } else {
+        setModelsFetchStatus("✓ Active fallback models ready");
+      }
+    } catch (err: any) {
+      console.warn("Failed to fetch models from API:", err);
+      setModelsFetchStatus("✓ Offline fallback chain loaded");
+    } finally {
+      setIsFetchingModels(false);
+    }
+  };
 
   const handleKeyChange = (newVal: string) => {
     setConfig({
@@ -214,6 +279,7 @@ export const ApiKeysModal: React.FC<ApiKeysModalProps> = ({
     localStorage.removeItem("causalflow_api_keys");
     setConfig(DEFAULT_CONFIG);
     onSaveKeys(DEFAULT_CONFIG);
+    setModelsFetchStatus(null);
   };
 
   return (
@@ -246,18 +312,17 @@ export const ApiKeysModal: React.FC<ApiKeysModalProps> = ({
           </button>
         </div>
 
-        {/* Informational Callout: Universal Key Architecture */}
+        {/* Informational Callout: Automatic Smart Fallback Architecture */}
         <div className="my-4 p-3.5 rounded-xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-900/40 text-xs text-slate-700 dark:text-slate-300 space-y-1.5">
           <div className="flex items-center gap-1.5 font-semibold text-blue-700 dark:text-blue-400">
             <Sparkles className="w-4 h-4" />
-            <span>Pro Studio Hybrid Setup (Vyce AI)</span>
+            <span>Automatic Model Fallback Engine Active</span>
           </div>
           <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
-            Requests are automatically routed to your unlocked high-speed models at <strong className="font-mono text-violet-400">https://vyceai.com/v1</strong>:
+            Requests are automatically protected against upstream model downtime. If any model is offline or disabled on Vyce AI (<strong className="font-mono text-violet-400">https://vyceai.com/v1</strong>), CausalFlow automatically fails over:
             <span className="font-mono text-[11px] block mt-1.5 text-slate-800 dark:text-slate-200 space-y-0.5">
-              • <strong className="text-violet-400">Radar Synthesis (/api/synthesize)</strong>: deepseek-v4-flash (1M ctx / high-speed) <br />
-              • <strong className="text-violet-400">Script Studio (/api/script)</strong>: claude-sonnet-4-6 (5-Act cinematic screenplay) <br />
-              • <strong className="text-slate-400">Fallback models</strong>: deepseek-v4.1, beam-1.0 (free promo), agnes-3.0-flash (free)
+              • <strong className="text-violet-400">Active Priority Fallbacks</strong>: gemini-3.1-flash-lite → claude-haiku-4-5 → nemotron-ultra-550b → claude-sonnet-4-6 → gpt-5.6-luna <br />
+              • <strong className="text-emerald-400">JSON Mode Resiliency</strong>: Strips markdown fences automatically; never crashes on syntax formatting.
             </span>
           </p>
         </div>
@@ -277,7 +342,13 @@ export const ApiKeysModal: React.FC<ApiKeysModalProps> = ({
             </label>
             <select
               value={selectedProvider}
-              onChange={(e) => setConfig({ ...config, provider: e.target.value })}
+              onChange={(e) => {
+                const nextProvider = e.target.value;
+                setConfig({ ...config, provider: nextProvider });
+                if (activeKey.trim()) {
+                  fetchOnlineModels(activeKey, nextProvider);
+                }
+              }}
               className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-[#06080F] text-slate-900 dark:text-white border border-slate-200 dark:border-white/10 text-xs sm:text-sm font-mono focus:ring-2 focus:ring-blue-500/50 outline-none"
             >
               <option value="auto">Auto-Detect (Routes to Vyce AI, Gemini, Groq, or OpenRouter by Prefix)</option>
@@ -365,36 +436,77 @@ export const ApiKeysModal: React.FC<ApiKeysModalProps> = ({
             </div>
           </div>
 
-          {/* Vyce AI Dynamic Model Selector */}
-          {isVyceActive && (
-            <div className="space-y-1.5 pt-2 border-t border-slate-200/70 dark:border-white/5">
-              <label className="text-xs font-semibold text-slate-900 dark:text-slate-200 flex items-center justify-between">
-                <span className="flex items-center gap-1.5">
-                  <Bot className="w-3.5 h-3.5 text-violet-500" />
-                  <span>Vyce AI Model (Unlocked Account Models)</span>
-                </span>
-                <span className="text-[11px] font-mono text-violet-600 dark:text-violet-400">
-                  via vyceai.com/v1
-                </span>
+          {/* Preferred Model & Fallback Picker */}
+          <div className="space-y-1.5 pt-2 border-t border-slate-200/70 dark:border-white/5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-slate-900 dark:text-slate-200 flex items-center gap-1.5">
+                <Bot className="w-3.5 h-3.5 text-blue-500" />
+                <span>Preferred Model (Optional / Auto-Fallback)</span>
               </label>
 
-              <select
-                value={config.model || "hybrid"}
-                onChange={(e) => setConfig({ ...config, model: e.target.value })}
-                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-[#06080F] text-slate-900 dark:text-white border border-slate-200 dark:border-white/10 text-xs sm:text-sm font-mono focus:ring-2 focus:ring-violet-500/50 outline-none"
+              <button
+                type="button"
+                onClick={() => fetchOnlineModels()}
+                disabled={isFetchingModels || !activeKey.trim()}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-mono font-semibold bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 dark:hover:bg-blue-900/60 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800/40 disabled:opacity-50 transition-colors"
+                title="Query /api/models to retrieve currently online models from your account"
               >
-                {VYCE_MODELS.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 pt-0.5">
-                <strong className="text-slate-700 dark:text-slate-300">Hybrid Default:</strong> uses <strong className="text-violet-400">deepseek-v4-flash</strong> for rapid headline dot-connecting and <strong className="text-violet-400">claude-sonnet-4-6</strong> for the final documentary narration script.
-              </p>
+                <RefreshCw className={`w-3 h-3 ${isFetchingModels ? "animate-spin" : ""}`} />
+                <span>{isFetchingModels ? "Fetching..." : "Fetch Active Models"}</span>
+              </button>
             </div>
-          )}
+
+            <div className="flex items-center gap-2">
+              {!customModelInput ? (
+                <select
+                  value={config.model || "hybrid"}
+                  onChange={(e) => {
+                    if (e.target.value === "__custom__") {
+                      setCustomModelInput(true);
+                    } else {
+                      setConfig({ ...config, model: e.target.value });
+                    }
+                  }}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-[#06080F] text-slate-900 dark:text-white border border-slate-200 dark:border-white/10 text-xs sm:text-sm font-mono focus:ring-2 focus:ring-blue-500/50 outline-none"
+                >
+                  {availableModels.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label} {m.tag ? `[${m.tag}]` : ""}
+                    </option>
+                  ))}
+                  <option value="__custom__">⚙️ Enter Custom Model ID...</option>
+                </select>
+              ) : (
+                <div className="relative w-full flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    value={config.model}
+                    onChange={(e) => setConfig({ ...config, model: e.target.value })}
+                    placeholder="e.g. gemini-3.1-flash-lite, claude-haiku-4-5..."
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-[#06080F] text-slate-900 dark:text-white border border-slate-200 dark:border-white/10 text-xs sm:text-sm font-mono focus:ring-2 focus:ring-blue-500/50 outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setCustomModelInput(false)}
+                    className="px-2.5 py-2 text-xs font-mono text-slate-400 hover:text-slate-200"
+                    title="Back to dropdown"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {modelsFetchStatus && (
+              <p className="text-[11px] font-mono text-emerald-600 dark:text-emerald-400">
+                {modelsFetchStatus}
+              </p>
+            )}
+
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 pt-0.5 leading-relaxed">
+              <strong className="text-slate-700 dark:text-slate-300">Auto (Smart Fallback):</strong> Automatically routes through active models. If any model is offline or temporarily disabled on Vyce AI, CausalFlow automatically switches down the fallback chain (<code className="text-violet-400 font-mono">gemini-3.1-flash-lite</code> → <code className="text-violet-400 font-mono">claude-haiku-4-5</code> → <code className="text-violet-400 font-mono">nemotron-ultra-550b</code> → <code className="text-violet-400 font-mono">claude-sonnet-4-6</code> → <code className="text-violet-400 font-mono">gpt-5.6-luna</code>).
+            </p>
+          </div>
 
           {/* Tavily API Key Input (Fact Verification) */}
           <div className="space-y-1.5 pt-2 border-t border-slate-200/70 dark:border-white/5">

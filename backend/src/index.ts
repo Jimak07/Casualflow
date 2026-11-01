@@ -2,7 +2,11 @@ import express, { Request, Response } from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import Parser from "rss-parser";
-import { detectAiProvider, callUniversalAi } from "./aiProvider.js";
+import {
+  detectAiProvider,
+  callUniversalAi,
+  getAvailableModelsForProvider,
+} from "./aiProvider.js";
 
 dotenv.config();
 
@@ -46,6 +50,86 @@ app.get("/health", (_req: Request, res: Response) => {
     engine: "Global Consensus & Evidence-Based Geopolitical Engine",
     timestamp: new Date().toISOString(),
   });
+});
+
+// Dynamic Models Discovery route (GET /api/models)
+app.get("/api/models", async (req: Request, res: Response) => {
+  try {
+    const rawKey =
+      (req.query.apiKey as string) ||
+      (req.headers.authorization?.replace(/^Bearer\s+/i, "")) ||
+      process.env.VYCE_API_KEY ||
+      process.env.UNIVERSAL_AI_KEY ||
+      "";
+    const providerParam = (req.query.provider as string) || "";
+
+    const aiConfig = detectAiProvider({
+      rawKey,
+      provider: providerParam,
+    });
+
+    if (!aiConfig) {
+      return res.json({
+        success: true,
+        provider: "none",
+        models: [
+          {
+            id: "hybrid",
+            label: "Auto (Smart Fallback)",
+            tag: "Default",
+            isDefault: true,
+          },
+        ],
+      });
+    }
+
+    const models = await getAvailableModelsForProvider(aiConfig);
+    return res.json({
+      success: true,
+      provider: aiConfig.provider,
+      providerLabel: aiConfig.providerLabel,
+      models,
+    });
+  } catch (error: any) {
+    console.error("Error fetching models:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message || "Failed to fetch models",
+      models: [
+        {
+          id: "hybrid",
+          label: "Auto (Smart Fallback)",
+          tag: "Default",
+          isDefault: true,
+        },
+        {
+          id: "gemini-3.1-flash-lite",
+          label: "gemini-3.1-flash-lite (Active)",
+          tag: "Active",
+        },
+        {
+          id: "claude-haiku-4-5",
+          label: "claude-haiku-4-5 (Active)",
+          tag: "Active",
+        },
+        {
+          id: "nemotron-ultra-550b",
+          label: "nemotron-ultra-550b (Active)",
+          tag: "Active",
+        },
+        {
+          id: "claude-sonnet-4-6",
+          label: "claude-sonnet-4-6 (Active)",
+          tag: "Active",
+        },
+        {
+          id: "gpt-5.6-luna",
+          label: "gpt-5.6-luna (Active)",
+          tag: "Active",
+        },
+      ],
+    });
+  }
 });
 
 // 2. TRUE GLOBAL RSS MATRIX (GET /api/radar)
@@ -522,7 +606,7 @@ Synthesize 4 distinct, high-impact documentary pitches connecting these multi-co
       success: true,
       count: uniquePitches.length,
       provider: aiConfig.providerLabel,
-      model: aiConfig.model,
+      model: parsed._usedModel || aiConfig.model,
       synthesizedAt: new Date().toISOString(),
       pitches: uniquePitches,
     });
@@ -799,7 +883,7 @@ Write the full 5-act production documentary screenplay (1,600 - 2,200 words tota
         updatedSection: parsed.updatedSection || parsed.section,
         targetActIndex,
         provider: aiConfig.providerLabel,
-        model: aiConfig.model,
+        model: parsed._usedModel || aiConfig.model,
         regeneratedAt: new Date().toISOString(),
       });
     }
@@ -811,7 +895,7 @@ Write the full 5-act production documentary screenplay (1,600 - 2,200 words tota
       sections: parsed.sections || [],
       verifiedSources: pitch.verifiedSources || [],
       provider: aiConfig.providerLabel,
-      model: aiConfig.model,
+      model: parsed._usedModel || aiConfig.model,
       generatedAt: new Date().toISOString(),
       hasTavilyResearch: Boolean(verifiedResearchNotes),
     });
