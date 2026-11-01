@@ -33,7 +33,14 @@ import {
   ArrowRight,
   Info,
 } from "lucide-react";
-import { StoryPitch, ScriptSection, SavedScriptEntry, StorylineMap, VerifiedSource } from "@/types";
+import {
+  StoryPitch,
+  ScriptSection,
+  SavedScriptEntry,
+  StorylineMap,
+  VerifiedSource,
+  BriefingPackData,
+} from "@/types";
 import { getStorySections } from "@/utils/scriptHelper";
 import { API_ENDPOINTS } from "@/lib/api";
 
@@ -53,6 +60,10 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
   isBuildingStoryline = false,
 }) => {
   const [sections, setSections] = useState<ScriptSection[]>([]);
+  const [scriptFormat, setScriptFormat] = useState<"long" | "short">("long");
+  const [briefingPack, setBriefingPack] = useState<BriefingPackData | null>(null);
+  const [isBriefingPackOpen, setIsBriefingPackOpen] = useState(true);
+  const [showRawBriefingText, setShowRawBriefingText] = useState(false);
   const [storylineMap, setStorylineMap] = useState<StorylineMap | null>(null);
   const [isStorylineMapExpanded, setIsStorylineMapExpanded] = useState(true);
   const [copyStatus, setCopyStatus] = useState<"idle" | "clean" | "all" | "saved">("idle");
@@ -140,7 +151,23 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
         }
       }
 
-      // 2. Check if user has cached script in localStorage
+      // 2. Load cached briefing pack if present
+      if (selectedStory.briefingPack) {
+        setBriefingPack(selectedStory.briefingPack);
+      } else {
+        const cachedBriefing = localStorage.getItem(`causalflow_briefing_${selectedStory.id}`);
+        if (cachedBriefing) {
+          try {
+            setBriefingPack(JSON.parse(cachedBriefing));
+          } catch (e) {
+            console.error("Failed to parse cached briefing pack", e);
+          }
+        } else {
+          setBriefingPack(null);
+        }
+      }
+
+      // 3. Check if user has cached script in localStorage
       const cachedKey = `causalflow_script_${selectedStory.id}`;
       const cached = localStorage.getItem(cachedKey);
       if (cached) {
@@ -158,12 +185,13 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
         }
       }
 
-      // 3. Otherwise load standardized 5-act sections
+      // 4. Otherwise load standardized 5-act sections
       const defaultSections = getStorySections(selectedStory);
       setSections(defaultSections);
     } else {
       setSections([]);
       setStorylineMap(null);
+      setBriefingPack(null);
     }
   }, [selectedStory]);
 
@@ -222,7 +250,7 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
     onUpdateStoryScript(selectedStory.id, updated);
   };
 
-  // 1. Deep Context Search & Full Storyline + Script Generation (2-Step Intelligence Pipeline)
+  // 1. Deep Context Search & Full Screenplay Generation via Jimak Writing Style Guide
   const handleDeepResearchAndGenerate = async () => {
     let groqKey = "";
     let tavilyKey = "";
@@ -250,19 +278,24 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
         : "claude-sonnet-4-6";
 
     setIsGeneratingFullScript(true);
-    setGenerationStep("1/2 Fetching historical context & developing timeline via Google News RSS & Tavily...");
+    setGenerationStep("1/2 Scraping full-text article bodies via Jina Reader & fetching background archives...");
 
     try {
       setTimeout(() => {
-        setGenerationStep(`2/2 Generating Storyline Map & Economics Explained Script via ${displayModel}...`);
-      }, 1600);
+        setGenerationStep(
+          `2/2 Generating ${
+            scriptFormat === "short" ? "Shorts (~60s)" : "Long-Form Documentary"
+          } screenplay via Jimak Guide with ${displayModel}...`
+        );
+      }, 2000);
 
-      const res = await fetch(API_ENDPOINTS.storyline, {
+      const res = await fetch(API_ENDPOINTS.script, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           pitch: selectedStory,
           cluster: selectedStory,
+          format: scriptFormat,
           apiKey: groqKey,
           groqKey,
           tavilyKey,
@@ -274,22 +307,24 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
       const data = await res.json();
 
       if (!res.ok || !data.success) {
-        throw new Error(data.message || data.error || "Failed to generate storyline.");
+        throw new Error(data.message || data.error || "Failed to generate screenplay.");
       }
 
-      if (data.storylineMap) {
-        setStorylineMap(data.storylineMap);
+      if (data.briefingPack) {
+        setBriefingPack(data.briefingPack);
+        setIsBriefingPackOpen(true);
         localStorage.setItem(
-          `causalflow_storyline_${selectedStory.id}`,
-          JSON.stringify(data.storylineMap)
+          `causalflow_briefing_${selectedStory.id}`,
+          JSON.stringify(data.briefingPack)
         );
       }
 
-      const generatedSections: ScriptSection[] = (data.scriptSections || []).map(
+      const generatedSections: ScriptSection[] = (data.sections || []).map(
         (s: any, idx: number) => ({
           act: s.act || `ACT ${idx + 1}`,
-          cue: s.cue || "[CAPCUT CUES]\n• Cinematic B-roll cuts and overlays",
+          cue: s.cue || "",
           narration: s.narration || "",
+          timestamp: s.timestamp || "",
         })
       );
 
@@ -303,15 +338,13 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
       );
 
       const resolvedModel = data.model || displayModel;
-      if (data.notice) {
-        showToast(data.notice);
-      } else {
-        showToast(
-          `✓ Generated 3-Part Storyline Map & Economics Explained Script via ${resolvedModel}!`
-        );
-      }
+      showToast(
+        `✓ Generated ${
+          scriptFormat === "short" ? "Shorts (~60s)" : "Long-Form"
+        } Screenplay via Jimak Guide (${resolvedModel})!`
+      );
     } catch (err: any) {
-      console.error("Storyline generation error:", err);
+      console.error("Script generation error:", err);
       showToast(`Generation failed: ${err.message || "Network error"}`);
     } finally {
       setIsGeneratingFullScript(false);
@@ -349,6 +382,8 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           pitch: selectedStory,
+          cluster: selectedStory,
+          format: scriptFormat,
           targetActIndex: actIndex,
           currentSections: sections,
           apiKey: groqKey,
@@ -366,9 +401,10 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
 
       const updated = [...sections];
       updated[actIndex] = {
-        act: data.updatedSection.act || sections[actIndex].act,
-        cue: data.updatedSection.cue || sections[actIndex].cue,
-        narration: data.updatedSection.narration || sections[actIndex].narration,
+        act: data.updatedSection?.act || sections[actIndex].act,
+        cue: data.updatedSection?.cue || sections[actIndex].cue,
+        narration: data.updatedSection?.narration || sections[actIndex].narration,
+        timestamp: data.updatedSection?.timestamp || sections[actIndex].timestamp,
       };
 
       setSections(updated);
@@ -378,7 +414,7 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
         JSON.stringify(updated)
       );
 
-      showToast(`✓ Rewrote Act [${actIndex + 1}] in Economics Explained voice!`);
+      showToast(`✓ Rewrote Act [${actIndex + 1}] in Jimak documentary voice!`);
     } catch (err: any) {
       console.error("Act regen error:", err);
       showToast(`Act regeneration failed: ${err.message}`);
@@ -396,12 +432,18 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
         text = text.replace(/\[Source:[^\]]+\]/gi, "");
         // Strip [Fact Source: ...] inline citations
         text = text.replace(/\[Fact Source:[^\]]+\]/gi, "");
-        // Strip [CapCut ...] visual directions
+        // Strip [CapCut ...] and [CAPCUT CUES...] visual directions
+        text = text.replace(/\[CAPCUT\s*CUES?[^\]]*\]/gi, "");
         text = text.replace(/\[CapCut[^\]]*\]/gi, "");
-        // Strip [B-Roll ...] bracketed directions
+        text = text.replace(/\[SCENE\s*START[^\]]*\]/gi, "");
+        text = text.replace(/\[SFX:[^\]]*\]/gi, "");
         text = text.replace(/\[B-Roll:[^\]]+\]/gi, "");
-        // Strip any accidental Act title headers inside narration
-        text = text.replace(/^(COLD OPEN|ACT I|ACT II|ACT III|OUTRO)[^\n]*\n?/gim, "");
+        // Strip markdown headings and bold tags
+        text = text.replace(/^#{1,6}\s+.*$/gm, "");
+        text = text.replace(/\*\*([^*]+)\*\*/g, "$1");
+        text = text.replace(/__([^_]+)__/g, "$1");
+        // Strip accidental Act headers
+        text = text.replace(/^(COLD OPEN|ACT I|ACT II|ACT III|OUTRO|CHAPTER \d+)[^\n]*\n?/gim, "");
         return text.replace(/[ \t]+/g, " ").trim();
       })
       .filter(Boolean)
@@ -598,6 +640,34 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
         {/* Action Button Row */}
         <div className="flex flex-wrap items-center justify-between gap-2.5 mt-4 pt-3 border-t border-slate-200/80 dark:border-white/10">
           <div className="flex flex-wrap items-center gap-2">
+            {/* Format Switcher Toggle */}
+            <div className="flex items-center rounded-xl bg-slate-100 dark:bg-[#06080F] p-0.5 border border-slate-200 dark:border-white/10 mr-1">
+              <button
+                onClick={() => setScriptFormat("long")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  scriptFormat === "long"
+                    ? "bg-blue-600 text-white shadow-sm"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                }`}
+                title="Long-Form Documentary (~12-15m / 2,000-2,500 words across 5 acts)"
+              >
+                <Video className="w-3.5 h-3.5" />
+                <span>Long-Form (~12-15m)</span>
+              </button>
+              <button
+                onClick={() => setScriptFormat("short")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  scriptFormat === "short"
+                    ? "bg-blue-600 text-white shadow-sm"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                }`}
+                title="Shorts / Reel (~60s / ~280 words, high-retention hook & CTA)"
+              >
+                <Radio className="w-3.5 h-3.5" />
+                <span>Shorts (~60s)</span>
+              </button>
+            </div>
+
             {/* 1. Copy Clean Voiceover (TTS Ready) */}
             <button
               onClick={handleCopyCleanVoiceover}
@@ -619,7 +689,7 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
             <button
               onClick={handleCopyAll}
               className="flex items-center gap-1.5 px-3 sm:px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium bg-white hover:bg-slate-100 dark:bg-[#0E131F] dark:hover:bg-[#141C2E] text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-white/10 transition-all active:scale-95"
-              title="Copy full screenplay with CapCut cues and act titles"
+              title="Copy full screenplay with visual cues and act titles"
             >
               {copyStatus === "all" ? (
                 <Check className="w-4 h-4 text-emerald-500" />
@@ -644,15 +714,27 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
             </button>
           </div>
 
-          {/* Deep Context AI Research & Storyline Generation Button */}
+          {/* Deep Context AI Research & Screenplay Generation Button */}
           <button
             onClick={handleDeepResearchAndGenerate}
             disabled={isGeneratingFullScript || isBuildingStoryline}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-blue-50 dark:bg-blue-950/70 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/50 transition-all disabled:opacity-50"
-            title="Perform 2-step research via Google News RSS, Tavily, and generate Economics Explained storyline map and script"
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold bg-blue-600 hover:bg-blue-700 active:scale-95 text-white shadow-md shadow-blue-500/25 transition-all disabled:opacity-50"
+            title="Scrape full articles via Jina Reader, build ground-truth briefing pack, and generate Jimak screenplay"
           >
-            <Sparkles className={`w-3.5 h-3.5 ${isGeneratingFullScript || isBuildingStoryline ? "animate-spin text-blue-500" : ""}`} />
-            <span>{isGeneratingFullScript || isBuildingStoryline ? "Building Storyline..." : "Regenerate Storyline & Script"}</span>
+            <Sparkles
+              className={`w-4 h-4 ${
+                isGeneratingFullScript || isBuildingStoryline
+                  ? "animate-spin text-blue-200"
+                  : ""
+              }`}
+            />
+            <span>
+              {isGeneratingFullScript || isBuildingStoryline
+                ? "Scraping & Generating..."
+                : `Generate ${
+                    scriptFormat === "short" ? "Shorts (~60s)" : "Long-Form"
+                  } Screenplay`}
+            </span>
           </button>
         </div>
 
@@ -661,14 +743,14 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
           <div className="mt-3 p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/30 text-xs font-mono text-blue-600 dark:text-blue-400 flex items-center justify-between animate-pulse">
             <div className="flex items-center gap-2">
               <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-              <span>{generationStep || "Fetching background context & generating 3-part storyline..."}</span>
+              <span>{generationStep || "Fetching background context & generating screenplay..."}</span>
             </div>
-            <span className="font-bold">Economics Explained Studio</span>
+            <span className="font-bold">Jimak Documentary Studio</span>
           </div>
         )}
       </div>
 
-      {/* Main Studio Body: Storyline Map + Script Sections + Evidence Drawer */}
+      {/* Main Studio Body: Briefing Pack + Storyline Map + Script Sections */}
       <div
         ref={teleprompterRef}
         className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6"
@@ -723,6 +805,138 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
           </div>
         ) : (
           <>
+            {/* VERIFIED GROUND-TRUTH BRIEFING PACK VIEWER */}
+            {briefingPack && (
+              <section className="rounded-2xl border border-blue-500/30 bg-blue-50/50 dark:bg-[#06080F]/90 p-4 sm:p-5 shadow-sm space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-blue-200/50 dark:border-blue-900/40">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-1.5 rounded-lg bg-blue-600 text-white shadow-sm shadow-blue-500/20">
+                      <BookOpen className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-bold text-slate-900 dark:text-white font-mono uppercase tracking-wider">
+                          Ground-Truth Briefing Pack
+                        </h3>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-blue-100 text-blue-700 dark:bg-blue-950/80 dark:text-blue-300 border border-blue-200 dark:border-blue-800/40">
+                          Jina AI Reader
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        {briefingPack.scrapedCount} full-text scraped articles &bull; {briefingPack.timelineCount} historical background archives
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowRawBriefingText(!showRawBriefingText)}
+                      className="px-2.5 py-1 rounded-lg text-[11px] font-mono font-medium text-slate-600 dark:text-slate-300 bg-white dark:bg-[#0E131F] border border-slate-200 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-[#141C2E] transition-colors"
+                    >
+                      {showRawBriefingText ? "Show Structured View" : "View Raw Pack Sent to AI"}
+                    </button>
+                    <button
+                      onClick={() => setIsBriefingPackOpen(!isBriefingPackOpen)}
+                      className="flex items-center gap-1 text-xs font-mono text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1"
+                    >
+                      <span>{isBriefingPackOpen ? "Collapse" : "Expand"}</span>
+                      {isBriefingPackOpen ? (
+                        <ChevronUp className="w-4 h-4" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {isBriefingPackOpen && (
+                  <div className="space-y-4">
+                    {showRawBriefingText && briefingPack.briefingPackText ? (
+                      <div className="rounded-xl p-3.5 bg-white dark:bg-[#0E131F] border border-slate-200 dark:border-white/10">
+                        <pre className="text-[11px] font-mono text-slate-800 dark:text-slate-200 whitespace-pre-wrap leading-relaxed max-h-96 overflow-y-auto">
+                          {briefingPack.briefingPackText}
+                        </pre>
+                      </div>
+                    ) : (
+                      <>
+                        {/* Scraped Articles List with Ground-Truth Paragraphs */}
+                        <div className="space-y-2.5">
+                          <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                            Full-Text Scraped Articles ({briefingPack.articles?.length || 0})
+                          </span>
+                          <div className="grid grid-cols-1 gap-2.5">
+                            {(briefingPack.articles || []).map((art, aIdx) => (
+                              <div
+                                key={`scraped-${aIdx}`}
+                                className="rounded-xl p-3 bg-white dark:bg-[#0E131F] border border-slate-200/80 dark:border-white/10 space-y-2 hover:border-blue-500/30 transition-colors"
+                              >
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                                  <a
+                                    href={art.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-1.5"
+                                  >
+                                    <span>{art.title}</span>
+                                    <ExternalLink className="w-3 h-3 text-blue-500 shrink-0" />
+                                  </a>
+                                  <div className="flex items-center gap-1.5 font-mono text-[10px] shrink-0">
+                                    <span className="px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-semibold border border-blue-200/50 dark:border-blue-800/40">
+                                      {art.source}
+                                    </span>
+                                    <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-white/10">
+                                      {art.region || "Global"}
+                                    </span>
+                                    <span className="text-slate-400">
+                                      {art.paragraphsCount} paragraphs extracted
+                                    </span>
+                                  </div>
+                                </div>
+                                {art.snippet && (
+                                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed italic border-l-2 border-blue-500/40 pl-2.5 py-0.5">
+                                    &ldquo;{art.snippet}&rdquo;
+                                  </p>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Background Timeline Archives */}
+                        {(briefingPack.backgroundTimeline || []).length > 0 && (
+                          <div className="space-y-2 pt-2">
+                            <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400">
+                              Historical Background Archives ({briefingPack.backgroundTimeline.length})
+                            </span>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {briefingPack.backgroundTimeline.map((bg, bgIdx) => (
+                                <div
+                                  key={`bg-${bgIdx}`}
+                                  className="p-2.5 rounded-xl bg-white dark:bg-[#0E131F] border border-purple-500/20 text-xs space-y-1"
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <span className="font-semibold text-slate-900 dark:text-white line-clamp-1">
+                                      {bg.title}
+                                    </span>
+                                    <span className="text-[10px] font-mono text-purple-500 shrink-0 ml-2">
+                                      {bg.source}
+                                    </span>
+                                  </div>
+                                  <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2">
+                                    {bg.snippet}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+              </section>
+            )}
+
             {/* 1. THE 3-PART GEOPOLITICAL STORYLINE MAP (RENDERED AT TOP BEFORE SCRIPT) */}
             {storylineMap && (
               <section className="rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50/70 dark:bg-[#06080F]/90 p-4 sm:p-5 shadow-sm space-y-4">
@@ -846,7 +1060,7 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
               </section>
             )}
 
-            {/* 2. 5-ACT ECONOMICS EXPLAINED PRODUCTION CARDS */}
+            {/* 2. PRODUCTION SCREENPLAY CARDS */}
             <div className="space-y-5">
               <div className="flex items-center justify-between px-1">
                 <div className="flex items-center gap-2">
@@ -855,11 +1069,13 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
                   </span>
                   <h3 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-slate-900 dark:text-white font-mono">
-                    Economics Explained 5-Act Screenplay
+                    {scriptFormat === "short"
+                      ? "Jimak High-Retention Shorts Screenplay (~280 words)"
+                      : "Jimak 5-Act Documentary Screenplay (~12-15m)"}
                   </h3>
                 </div>
                 <span className="text-xs font-mono text-slate-400">
-                  Zero Hallucination • Mandatory Inline Citations
+                  Pure Spoken Voiceover • Mandatory Inline Citations
                 </span>
               </div>
 
@@ -922,11 +1138,11 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
                                 <Video className="w-3.5 h-3.5" />
                               </div>
                               <span className="text-xs font-mono font-bold uppercase tracking-wider text-blue-700 dark:text-blue-300">
-                                CapCut Visual Cues & B-Roll Instructions
+                                Visual B-Roll Directions & Sound Design
                               </span>
                             </div>
                             <span className="text-[10px] font-mono text-blue-600/70 dark:text-blue-400/70">
-                              Editing & Sound Design Directions
+                              Editing & Visual Directions
                             </span>
                           </div>
 
@@ -935,7 +1151,7 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
                             onChange={(e) => handleVisualCueChange(idx, e.target.value)}
                             rows={3}
                             className="w-full bg-white/70 dark:bg-[#06080F]/50 text-slate-800 dark:text-slate-200 text-xs sm:text-sm font-mono p-2.5 rounded-lg border border-blue-200/60 dark:border-blue-800/40 outline-none focus:ring-1 focus:ring-blue-500 transition-all resize-y leading-relaxed"
-                            placeholder="[CapCut Visual Cues]: Shot description, B-roll stock keywords, sound effects..."
+                            placeholder="Visual B-roll shots, motion graphics, audio drops, sound design..."
                           />
                         </div>
 
@@ -944,7 +1160,7 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300">
                               <Mic className="w-3.5 h-3.5 text-blue-500" />
-                              <span>Spoken Voiceover Copy (with Mandatory Inline Citations)</span>
+                              <span>Pure Spoken Voiceover (Zero Cues or Formatting in Speech)</span>
                             </div>
                             <span className="text-[11px] font-mono text-slate-400">
                               {section.narration.split(/\s+/).filter(Boolean).length} words

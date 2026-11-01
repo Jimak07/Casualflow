@@ -7,11 +7,10 @@ import {
   callUniversalAi,
   getAvailableModelsForProvider,
 } from "./aiProvider.js";
-import {
-  generateRssConsensusPitches,
-  generateFallbackScript,
-  generateFallbackStorylineAndScript,
-} from "./fallbackSynthesis.js";
+import { generateRssConsensusPitches } from "./fallbackSynthesis.js";
+import { buildVerifiedBriefingPack } from "./articleScraper.js";
+import { JIMAK_WRITING_STYLE_GUIDE } from "./jimakStyleGuide.js";
+
 import { clusterAndScoreHeadlines } from "./clustering.js";
 
 dotenv.config();
@@ -809,18 +808,13 @@ app.post("/api/storyline", async (req: Request, res: Response) => {
 
     const allVerifiedSources = [...breakingArticles, ...contextArticles];
 
-    // If no AI key configured, use local fallback synthesis
+    // If no AI key configured
     if (!aiConfig) {
-      const fallbackResult = generateFallbackStorylineAndScript(sourceData, contextArticles);
-      return res.json({
-        success: true,
-        notice: "Notice: No AI API key provided. Generated storyline & script via local consensus engine.",
-        ...fallbackResult,
-        evidencePack: {
-          breakingArticles,
-          contextArticles,
-        },
-        verifiedSources: allVerifiedSources,
+      return res.status(400).json({
+        success: false,
+        error: "NO_API_KEY",
+        message:
+          "No AI API key configured. Please paste your Vyce AI, Gemini, Groq, OpenRouter, or OpenAI key in the Settings modal.",
       });
     }
 
@@ -974,12 +968,14 @@ Generate the complete 3-Part Geopolitical Storyline Map and the full 5-Act Econo
         temperature: 0.72,
       });
     } catch (aiError: any) {
-      console.warn(
-        `[CausalFlow Backend] Storyline generation AI gateway error (${aiError.message}). Activating local fallback engine...`
+      console.error(
+        `[CausalFlow Backend] Storyline generation AI error: ${aiError.message}`
       );
-      isFallbackMode = true;
-      fallbackNotice = "Notice: Upstream AI gateway is busy (502). Generated storyline map & script via local consensus engine.";
-      parsed = generateFallbackStorylineAndScript(sourceData, contextArticles);
+      return res.status(502).json({
+        success: false,
+        error: "AI_GENERATION_FAILED",
+        message: `Failed to generate storyline across available AI models: ${aiError.message}`,
+      });
     }
 
     res.json({
@@ -991,34 +987,43 @@ Generate the complete 3-Part Geopolitical Storyline Map and the full 5-Act Econo
         contextArticles,
       },
       verifiedSources: allVerifiedSources,
-      provider: isFallbackMode ? "Autonomous Storyline Fallback Engine" : aiConfig.providerLabel,
-      model: isFallbackMode ? "Local Economics Screenwriter" : (parsed._usedModel || aiConfig.model),
-      isFallback: isFallbackMode,
-      notice: fallbackNotice || undefined,
+      provider: aiConfig.providerLabel,
+      model: parsed._usedModel || aiConfig.model,
+      isFallback: false,
       generatedAt: new Date().toISOString(),
     });
   } catch (error: any) {
     console.error("Storyline API error:", error);
-    const fallbackResult = generateFallbackStorylineAndScript(req.body?.cluster || req.body?.pitch || {});
-    res.json({
-      success: true,
-      notice: "Notice: Upstream AI gateway error. Generated storyline & script via local consensus engine.",
-      ...fallbackResult,
-      evidencePack: {
-        breakingArticles: req.body?.cluster?.articles || [],
-        contextArticles: [],
-      },
-      verifiedSources: req.body?.cluster?.articles || [],
-      generatedAt: new Date().toISOString(),
+    return res.status(500).json({
+      success: false,
+      error: "SERVER_ERROR",
+      message: error.message || "Failed to generate storyline",
     });
   }
 });
 
-// 5. "Economics Explained" Evidence-Backed Documentary Script Engine (POST /api/script)
+function cleanVoiceoverNarration(text: string): string {
+  if (!text) return "";
+  return text
+    .replace(/\[CAPCUT\s*CUES?[^\]]*\]/gi, "")
+    .replace(/\[CapCut[^\]]*\]/gi, "")
+    .replace(/\[SCENE\s*START[^\]]*\]/gi, "")
+    .replace(/\[SFX:[^\]]*\]/gi, "")
+    .replace(/\[B-ROLL:[^\]]*\]/gi, "")
+    .replace(/^#{1,6}\s+.*$/gm, "") // Strip markdown headings
+    .replace(/\*\*([^*]+)\*\*/g, "$1") // Strip bold asterisks
+    .replace(/__([^_]+)__/g, "$1") // Strip bold underscores
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+// 5. Jimak Documentary Voiceover Script Engine (POST /api/script)
 app.post("/api/script", async (req: Request, res: Response) => {
   try {
     const {
       pitch,
+      cluster,
+      format = "long",
       apiKey = "",
       groqKey = "",
       tavilyKey = "",
@@ -1028,11 +1033,12 @@ app.post("/api/script", async (req: Request, res: Response) => {
       provider = "",
     } = req.body;
 
-    if (!pitch) {
+    const sourceData = cluster || pitch;
+    if (!sourceData) {
       return res.status(400).json({
         success: false,
-        error: "MISSING_PITCH",
-        message: "Pitch data is required.",
+        error: "MISSING_DATA",
+        message: "News cluster or pitch data is required.",
       });
     }
 
@@ -1053,280 +1059,301 @@ app.post("/api/script", async (req: Request, res: Response) => {
       });
     }
 
-    console.log(
-      `[CausalFlow Backend] Generating Economics Explained script with ${aiConfig.providerLabel}`
-    );
-
-    // Step A: Fact & History Verification (Tavily API with Graceful Fallback)
+    // Step A: Full Article Body Scraper & Briefing Pack Assembly
     const effectiveTavilyKey =
       (tavilyKey && tavilyKey.trim()) || process.env.TAVILY_API_KEY || "";
 
-    const searchQueries: string[] =
-      pitch.searchQueries && pitch.searchQueries.length > 0
-        ? pitch.searchQueries
-        : [
-            `${pitch.title} news facts companies statistics numbers`,
-            `${pitch.historyShort || pitch.nodes?.historicalParallel?.period || "history"} economic crisis data`,
-          ];
+    console.log(
+      `[CausalFlow Backend] Gathering full-text article bodies and briefing pack for: "${sourceData.title}"`
+    );
 
-    let verifiedResearchNotes = "";
+    const briefingPack = await buildVerifiedBriefingPack(
+      sourceData,
+      effectiveTavilyKey
+    );
 
-    if (effectiveTavilyKey) {
-      try {
-        const tavilyPromises = searchQueries.slice(0, 2).map(async (query) => {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 6000);
-          try {
-            const r = await fetch("https://api.tavily.com/search", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              signal: controller.signal,
-              body: JSON.stringify({
-                api_key: effectiveTavilyKey,
-                query,
-                search_depth: "basic",
-                max_results: 4,
-              }),
-            });
-            clearTimeout(timeoutId);
-            if (!r.ok) return [];
-            const data = await r.json();
-            return (data.results || []).map(
-              (item: any) => `[Fact Source: ${item.title}] ${item.content}`
-            );
-          } catch {
-            clearTimeout(timeoutId);
-            return [];
-          }
-        });
-
-        const settled = await Promise.allSettled(tavilyPromises);
-        const searchSnippets = settled.flatMap((r) =>
-          r.status === "fulfilled" ? r.value : []
-        );
-
-        if (searchSnippets.length > 0) {
-          verifiedResearchNotes = `VERIFIED LIVE & HISTORICAL RESEARCH FACTS (via Tavily Search):\n${searchSnippets.join(
-            "\n"
-          )}\n`;
-        }
-      } catch (err) {
-        console.warn("Tavily search skipped or failed gracefully:", err);
-      }
-    }
-
-    // Prepare verified sources context
-    const sourcesContext = (pitch.verifiedSources || [])
-      .map(
-        (s: any, i: number) =>
-          `[Source ${i + 1}]: "${s.title}" — ${s.source} (${s.region || "Global"})\nLink: ${s.link || ""}`
-      )
-      .join("\n\n");
+    console.log(
+      `[CausalFlow Backend] Briefing pack assembled: ${briefingPack.scrapedArticles.length} scraped articles, ${briefingPack.backgroundTimeline.length} historical context archives. Generating ${format.toUpperCase()} script with ${aiConfig.providerLabel}`
+    );
 
     const isSingleActRegen =
       targetActIndex !== null &&
       targetActIndex !== undefined &&
       typeof targetActIndex === "number" &&
-      targetActIndex >= 0 &&
-      targetActIndex < 5;
-
-    const ACT_NAMES = [
-      "COLD OPEN // THE EVERYDAY PARADOX",
-      "ACT I // THE TIMELINE: HOW WE GOT HERE ➔ TODAY'S BREAKING UPDATE",
-      "ACT II // THE GEOPOLITICAL & MACRO ENGINE",
-      "ACT III // THE GROUND-LEVEL RIPPLE EFFECT",
-      "OUTRO // THE MACRO VERDICT",
-    ];
+      targetActIndex >= 0;
 
     let systemPrompt = "";
     let userPrompt = "";
 
     if (isSingleActRegen) {
-      const targetActName = ACT_NAMES[targetActIndex];
-      const surroundingContext = (currentSections || [])
-        .map(
-          (s: any, idx: number) =>
-            `Act [${idx + 1}] (${s.act}):\n${s.narration.slice(0, 200)}...`
-        )
-        .join("\n\n");
+      systemPrompt = `${JIMAK_WRITING_STYLE_GUIDE}
 
-      systemPrompt = `You are the lead analytical scriptwriter for an elite documentary YouTube channel styled after *Economics Explained* and *ColdFusion*.
-You are rewriting or expanding ONLY ONE specific act of the script: "${targetActName}".
-Ensure the revised act flows seamlessly with the existing acts. Aim for 350 to 500 words of rich, evidence-based narration for this act.
+================================================================================
+TASK: REGENERATE SINGLE SECTION (ACT INDEX ${targetActIndex})
+================================================================================
+You are Jimak writing for an elite faceless macro-economics and geopolitics documentary channel.
+Rewrite or expand ONLY the targeted section while maintaining seamless continuity with the surrounding sections.
+Strictly adhere to all Jimak style rules:
+- Pure read-aloud voiceover paragraphs.
+- Zero [CAPCUT CUES], zero [SCENE START], zero stage directions, zero bold tags, zero markdown headers inside narration.
+- Mandatory inline source citations: [Source: Outlet Name, Region] for every factual claim.
+- Visual B-roll guidance must go strictly in the "cue" field, NOT in "narration".
 
-INLINE CITATION RULE:
-Every time you state a statistic, policy decision, or factual claim, insert an inline source tag like "[Source: Outlet Name, Region]".
-Put visual editing notes and B-roll ideas strictly inside the "cue" field.
-
-Return strictly valid JSON:
+JSON OUTPUT FORMAT:
 {
   "updatedSection": {
-    "act": "${targetActName}",
-    "cue": "[CAPCUT CUES]\\n• Visual directions, split-screen charts, sound effects, text overlays",
-    "narration": "Analytical, engaging spoken voiceover with inline citations (350-500 words)"
+    "act": "Section Title",
+    "cue": "Visual B-roll directions, sound design, graphics",
+    "narration": "Pure spoken voiceover with inline citations",
+    "timestamp": "e.g. 1:30 - 4:00"
   }
 }`;
 
-      userPrompt = `PITCH TITLE: ${pitch.title}
-CATEGORY: ${pitch.category}
-CONSENSUS: ${pitch.consensusBadge || "Multi-Continental Reporting"}
-TIMELINE: ${pitch.nodes?.macroTrigger?.baselineOrigin || ""} ➔ ${pitch.nodes?.macroTrigger?.breakingUpdate || pitch.nodes?.macroTrigger?.description}
-GEOPOLITICAL MECHANISM & HISTORY: ${pitch.nodes?.historicalParallel?.description}
-HUMAN SCALE: ${pitch.nodes?.humanImpact?.description}
+      userPrompt = `BRIEFING PACK (GROUND-TRUTH EVIDENCE):
+${briefingPack.briefingPackText}
 
-VERIFIED OUTLET SOURCES REPORTING THIS EVENT:
-${sourcesContext || "Global News Outlets"}
+EXISTING SECTIONS CONTEXT:
+${(currentSections || [])
+  .map(
+    (s: any, idx: number) =>
+      `Act [${idx + 1}] (${s.act}):\n${(s.narration || "").slice(0, 250)}...`
+  )
+  .join("\n\n")}
 
-${verifiedResearchNotes}
+REGENERATE ACT [${targetActIndex + 1}] strictly adhering to Jimak's style rules and ground-truth evidence above.`;
+    } else if (format === "short") {
+      // Shorts / Reel format (~280 words / 50-60 seconds)
+      systemPrompt = `${JIMAK_WRITING_STYLE_GUIDE}
 
-SURROUNDING ACTS CONTEXT:
-${surroundingContext}
+================================================================================
+TASK: WRITE A 50-60 SECOND SHORTS SCRIPT (~280 WORDS TOTAL)
+================================================================================
+You are Jimak writing a high-retention 50-60s Short/Reel (~280 words) designed to generate curiosity and drive viewers to the full documentary.
 
-REGENERATE ACT [${targetActIndex + 1}]: "${targetActName}" in Economics Explained analytical voiceover style.`;
-    } else {
-      systemPrompt = `You are the lead scriptwriter for a high-retention macroeconomic and investigative YouTube documentary channel styled after *Economics Explained* and *ColdFusion*.
+STRICT SHORTS RULES (FROM JIMAK STYLE GUIDE):
+1. HOOK: Use one of 4 types (Consensus/Pivot, Paradox/Inversion, Comparative Shock, or Direct Question).
+2. PROOF OF URGENCY: One general, concrete statement.
+3. THREE POINTS: Exactly one punchy sentence each (cut figures that don't drive urgency; cut historical precedents and institutional detail).
+4. THE MECHANISM: In exactly one sentence.
+5. CLOSING QUESTION: One lingering systemic question.
+6. EXACT CTA WORDING: Must end with verbatim CTA: "...you can watch it using the link on this video" (never say "link in bio").
 
-Write a comprehensive, production-ready documentary script (aim for 1,600 to 2,200 words of rich narration across 5 distinct acts) based on the provided multi-continental pitch and verified evidence.
+STRICT BANS:
+- Output pure, clean, read-aloud voiceover text.
+- NO bullet lists, NO markdown headers (###), NO bold tags (**), NO stage directions, and NO [CAPCUT CUES] inside narration text!
+- Visual B-roll directions and editing cues must be placed strictly inside the "cue" field.
+- Mandatory inline source citations: Append [Source: Outlet Name, Region] whenever stating facts or numbers.
 
-ADOPT THE EXACT "ECONOMICS EXPLAINED" NARRATIVE STYLE:
-1. COLD OPEN // THE EVERYDAY PARADOX: Hook the viewer with a sharp observation of how a massive global event is quietly showing up in everyday life.
-2. ACT I // THE TIMELINE: HOW WE GOT HERE ➔ TODAY'S BREAKING UPDATE: Explicitly link the baseline history/origin to today's breaking update, citing global coverage across Asia, Africa, Europe, and the US.
-3. ACT II // THE GEOPOLITICAL & MACRO ENGINE: Break down the hidden supply chain, monetary policy, or resource leverage in plain, gripping English, plus the 10-50 year historical mirror.
-4. ACT III // THE GROUND-LEVEL RIPPLE EFFECT: Trace the exact math of how this macro shock travels down to the average citizen's purchasing power, grocery basket, energy bill, or local wages.
-5. OUTRO // THE MACRO VERDICT: Deliver an analytical big-picture assessment of what happens over the next 6 to 12 months.
-
-MANDATORY INLINE CITATIONS RULE:
-Whenever you cite a statistic, percentage, policy, or headline claim in the narration, append an inline source tag like "[Source: Outlet Name, Region]".
-Put visual B-roll and CapCut editing directions strictly inside the "cue" field.
-
-Structure the JSON output as:
+JSON OUTPUT FORMAT:
 {
   "sections": [
     {
-      "act": "COLD OPEN // THE EVERYDAY PARADOX",
-      "cue": "[CAPCUT CUES]\\n• Opening B-roll montage, drone footage, metallic drop SFX, lower-third titles",
-      "narration": "Engaging voiceover with inline citations (250-350 words)"
+      "act": "HOOK & URGENCY",
+      "cue": "Visual directions, dynamic kinetic typography, sound effect",
+      "narration": "Spoken hook and proof of urgency with inline citations [Source: Outlet, Region]",
+      "timestamp": "0:00 – 0:15"
     },
     {
-      "act": "ACT I // THE TIMELINE: HOW WE GOT HERE ➔ TODAY'S BREAKING UPDATE",
-      "cue": "[CAPCUT CUES]\\n• Split-screen global news broadcasts, animated timeline map, headline overlays",
-      "narration": "Investigative breakdown linking the past baseline to today's breaking catalyst (350-450 words)"
+      "act": "THE 3 PILLARS & MECHANISM",
+      "cue": "3-stage animated graphic, sound design riser",
+      "narration": "Three one-sentence points followed by the single-sentence causal mechanism [Source: Outlet, Region]",
+      "timestamp": "0:15 – 0:45"
     },
     {
-      "act": "ACT II // THE GEOPOLITICAL & MACRO ENGINE",
-      "cue": "[CAPCUT CUES]\\n• Archival footage grain, vintage news broadcasts, interactive supply-chain flowcharts",
-      "narration": "Deep dive into the structural mechanism and historical parallel (400-500 words)"
-    },
-    {
-      "act": "ACT III // THE GROUND-LEVEL RIPPLE EFFECT",
-      "cue": "[CAPCUT CUES]\\n• Grocery receipts, utility meters, industrial towns, purchasing power charts",
-      "narration": "Calculating the exact damage to the average citizen's daily finances (400-500 words)"
-    },
-    {
-      "act": "OUTRO // THE MACRO VERDICT",
-      "cue": "[CAPCUT CUES]\\n• Closing cinematic shots, summary infographics, audio crescendo",
-      "narration": "Thought-provoking, memorable closing realization on what to watch next (250-350 words)"
+      "act": "CLOSING QUESTION & CTA",
+      "cue": "Link arrow overlay pointing down, title card",
+      "narration": "Lingering systemic question followed verbatim by: ...you can watch it using the link on this video",
+      "timestamp": "0:45 – 1:00"
     }
   ]
 }`;
 
-      userPrompt = `DOCUMENTARY PITCH DETAILS:
-TITLE: ${pitch.title}
-SUBTITLE / THESIS: ${pitch.subtitle}
-CATEGORY: ${pitch.category}
-CONSENSUS: ${pitch.consensusBadge || "Reported across multiple continents"}
-REGIONS REPORTING: ${(pitch.regionsReporting || []).join(", ") || "Global"}
-RUNTIME ESTIMATE: ${pitch.estimatedRuntime || "14m 20s"}
+      userPrompt = `VERIFIED BRIEFING PACK (GROUND-TRUTH EVIDENCE):
+${briefingPack.briefingPackText}
 
-NODE 1 — THE DEVELOPING TIMELINE (PAST ➔ TODAY'S UPDATE):
-Baseline Origin: ${pitch.nodes?.macroTrigger?.baselineOrigin || "Ongoing macroeconomic situation"}
-Today's Breaking Update: ${pitch.nodes?.macroTrigger?.breakingUpdate || pitch.nodes?.macroTrigger?.description}
-Outlets Reporting: ${pitch.nodes?.macroTrigger?.outletsReporting || pitch.nodes?.macroTrigger?.source}
-Metric: ${pitch.nodes?.macroTrigger?.metricTag}
+TOPIC: ${sourceData.title}
+SUMMARY: ${sourceData.summary || ""}
 
-NODE 2 — GEOPOLITICAL & HISTORICAL MECHANISM:
-Mechanism: ${pitch.nodes?.historicalParallel?.mechanism || pitch.nodes?.historicalParallel?.description}
-Historical Parallel: ${pitch.nodes?.historicalParallel?.historicalPrecedent || pitch.nodes?.historicalParallel?.title} (${pitch.nodes?.historicalParallel?.period})
-Structural Match: ${pitch.nodes?.historicalParallel?.similarityScore}
-Core Lesson: ${pitch.nodes?.historicalParallel?.lesson}
+Write the complete ~280-word high-retention Shorts voiceover script based on the verified briefing pack above.`;
+    } else {
+      // Long-form documentary format (~12-15m / 2,000-2,500 words)
+      systemPrompt = `${JIMAK_WRITING_STYLE_GUIDE}
 
-NODE 3 — EVERYDAY HUMAN IMPACT (THE AVERAGE CITIZEN):
-Affected Demographic: ${pitch.nodes?.humanImpact?.affectedGroup}
-Ground-Level Effect: ${pitch.nodes?.humanImpact?.groundLevelEffect || pitch.nodes?.humanImpact?.description}
-Dollar/Price Metric: ${pitch.nodes?.humanImpact?.dollarOrPriceMetric}
-Actionable Takeaway: ${pitch.nodes?.humanImpact?.actionableTakeaway}
+================================================================================
+TASK: WRITE FULL-LENGTH PRODUCTION DOCUMENTARY VOICEOVER (LONG-FORM)
+================================================================================
+You are Jimak writing for an elite faceless macro-economics and geopolitics documentary channel (Economics Explained tone).
+Write a rich, comprehensive long-form documentary voiceover screenplay (aim for 1,800 to 2,400 words across 5 acts) based strictly on the provided verified briefing pack.
 
-VERIFIED OUTLET SOURCES REPORTING THIS STORY:
-${sourcesContext || "Live Multi-Continental RSS feeds"}
+STRICT LONG-FORM RULES (FROM JIMAK STYLE GUIDE):
+1. HOOK (First 30 seconds):
+   - Open on a concrete, factual, jarring reality or corrective to the consensus (what everyone is covering vs what they are missing).
+   - NEVER start with "Welcome back", "Let's dive in", or "Today we will explore".
+2. AGENDA (Right after the hook):
+   - MUST be an explicit numbered list of 3 to 4 specific questions ONLY, introduced verbatim with:
+     "So on today's video, we are going to be looking at 3 things:" (or 4 things)
+     1. [First specific question?]
+     2. [Second specific question?]
+     And finally, [Third/Final specific question?]
+3. BODY CHAPTERS:
+   - Each section answers one of the opening questions in order.
+   - Connect older baseline timeline events to today's breaking update, and trace how high-level geopolitics impacts the everyday life and wallet of the average person.
+   - Weave 2 to 4 verified data points with consequences per section.
+   - Use "For example," to signpost case studies.
+4. "AND FINALLY" CLOSE:
+   - The phrase "And finally" MUST appear verbatim as the spoken transition into the final chapter.
+   - Recap the stakes, then end on a systemic question that lingers (no preachy lectures).
+   - End with the exact verbatim sign-off: "Thanks for watching today's video and see you in the next"
 
-${verifiedResearchNotes}
+STRICT BANS & VOICE ENFORCEMENT:
+- Output pure, clean, read-aloud voiceover paragraphs.
+- Zero [CAPCUT CUES], zero [SCENE START], zero stage directions, zero bold tags (**), zero markdown headers (###) inside voiceover text!
+- Visual B-roll directions, graphics, and sound design must be kept strictly inside the separate "cue" field.
+- Mandatory inline source citations: Append [Source: Outlet Name, Region] whenever stating facts or numbers.
 
-Write the full 5-act production documentary screenplay (1,600 - 2,200 words total voiceover) with inline source citations formatted in the required JSON structure.`;
+JSON OUTPUT FORMAT:
+{
+  "sections": [
+    {
+      "act": "COLD OPEN & AGENDA",
+      "cue": "Visual B-roll directions, establishing shots, lower-third graphics",
+      "narration": "Spoken hook followed by: So on today's video, we are going to be looking at 3 things: 1. ... 2. ... And finally, 3. ... (350-450 words)",
+      "timestamp": "0:00 – 1:45"
+    },
+    {
+      "act": "CHAPTER 1 // THE ORIGIN & BREAKING CATALYST",
+      "cue": "Split-screen news montage, animated timeline map, audio typewriter sfx",
+      "narration": "Spoken breakdown answering Question 1 with inline citations (400-500 words)",
+      "timestamp": "1:45 – 5:00"
+    },
+    {
+      "act": "CHAPTER 2 // THE GEOPOLITICAL & STRUCTURAL MECHANISM",
+      "cue": "Archival footage filter, 3D supply-chain chokepoint motion graphic, sub-bass riser",
+      "narration": "Spoken deep-dive answering Question 2 with historical precedents (450-550 words)",
+      "timestamp": "5:00 – 9:00"
+    },
+    {
+      "act": "CHAPTER 3 // HOW IT HITS THE AVERAGE PERSON",
+      "cue": "Intimate close-ups: grocery bills, utility meters, purchasing power charts",
+      "narration": "Spoken breakdown answering Question 3 tracing macro chess moves to household budgets (400-500 words)",
+      "timestamp": "9:00 – 12:30"
+    },
+    {
+      "act": "CHAPTER 4 // AND FINALLY: THE VERDICT",
+      "cue": "Cinematic aerial pullback, summary scorecards, ambient synth resolution",
+      "narration": "Begins verbatim with: And finally... Recaps the stakes, leaves a lingering systemic question, and concludes with exact verbatim words: Thanks for watching today's video and see you in the next (350-450 words)",
+      "timestamp": "12:30 – 15:00"
+    }
+  ]
+}`;
+
+      userPrompt = `VERIFIED BRIEFING PACK (GROUND-TRUTH EVIDENCE):
+${briefingPack.briefingPackText}
+
+TOPIC: ${sourceData.title}
+SUBTITLE: ${sourceData.subtitle || sourceData.summary || ""}
+CATEGORY: ${sourceData.category || "Geopolitics & Macroeconomics"}
+REGIONS REPORTING: ${(sourceData.regions || []).join(", ") || "Global"}
+
+Write the full production documentary voiceover screenplay (1,800 to 2,400 words total voiceover) obeying all Jimak style rules and inline citations.`;
     }
 
     let parsed: any;
-    let isFallbackMode = false;
-    let fallbackNotice = "";
-
     try {
       parsed = await callUniversalAi({
         config: aiConfig,
         systemPrompt,
         userPrompt,
-        maxTokens: 4500,
+        maxTokens: format === "short" ? 2000 : 5000,
         temperature: 0.72,
       });
     } catch (aiError: any) {
-      console.warn(
-        `[CausalFlow Backend] Script generation AI gateway error (${aiError.message}). Activating local documentary script fallback...`
+      console.error(
+        `[CausalFlow Backend] Script generation AI error across models: ${aiError.message}`
       );
-      isFallbackMode = true;
-      fallbackNotice = "Notice: Upstream AI gateway is busy (502). Generated screenplay via local synthesis engine.";
-      parsed = generateFallbackScript(pitch, targetActIndex);
+      return res.status(502).json({
+        success: false,
+        error: "AI_GENERATION_FAILED",
+        message: `Script generation failed across all available AI models: ${aiError.message}`,
+      });
     }
 
     if (isSingleActRegen) {
+      const updatedSection =
+        parsed.updatedSection || parsed.sections?.[0] || parsed.section || {};
+      const cleanedNarration = cleanVoiceoverNarration(
+        updatedSection.narration || ""
+      );
       return res.json({
         success: true,
-        updatedSection: parsed.updatedSection || parsed.section,
+        format,
+        updatedSection: {
+          act: updatedSection.act || `ACT ${targetActIndex + 1}`,
+          cue: updatedSection.cue || "",
+          narration: cleanedNarration,
+          timestamp: updatedSection.timestamp || "",
+        },
         targetActIndex,
-        provider: isFallbackMode ? "Autonomous Script Fallback Engine" : aiConfig.providerLabel,
-        model: isFallbackMode ? "Local Documentary Screenwriter" : (parsed._usedModel || aiConfig.model),
-        isFallback: isFallbackMode,
-        notice: fallbackNotice || undefined,
+        provider: aiConfig.providerLabel,
+        model: parsed._usedModel || aiConfig.model,
         regeneratedAt: new Date().toISOString(),
       });
     }
 
-    res.json({
+    const cleanedSections = (parsed.sections || []).map(
+      (s: any, idx: number) => ({
+        act: s.act || `ACT ${idx + 1}`,
+        cue: s.cue || "",
+        narration: cleanVoiceoverNarration(s.narration || ""),
+        timestamp: s.timestamp || "",
+      })
+    );
+
+    const fullVoiceover = cleanedSections
+      .map((s: any) => s.narration)
+      .filter(Boolean)
+      .join("\n\n");
+
+    return res.json({
       success: true,
-      count: (parsed.sections || []).length,
-      pitchId: pitch.id,
-      sections: parsed.sections || [],
-      verifiedSources: pitch.verifiedSources || [],
-      provider: isFallbackMode ? "Autonomous Script Fallback Engine" : aiConfig.providerLabel,
-      model: isFallbackMode ? "Local Documentary Screenwriter" : (parsed._usedModel || aiConfig.model),
-      isFallback: isFallbackMode,
-      notice: fallbackNotice || undefined,
+      format,
+      count: cleanedSections.length,
+      pitchId: sourceData.id || "documentary-script",
+      sections: cleanedSections,
+      fullVoiceover,
+      briefingPack: {
+        topic: briefingPack.topic,
+        consensusBadge: briefingPack.consensusBadge,
+        scrapedCount: briefingPack.scrapedArticles.length,
+        timelineCount: briefingPack.backgroundTimeline.length,
+        articles: briefingPack.scrapedArticles.map((a: any) => ({
+          title: a.title,
+          source: a.source,
+          url: a.url,
+          region: a.region,
+          pubDate: a.pubDate,
+          paragraphsCount: (a.paragraphs || []).length,
+          snippet: a.paragraphs?.[0] || "",
+        })),
+        backgroundTimeline: briefingPack.backgroundTimeline,
+        briefingPackText: briefingPack.briefingPackText,
+      },
+      verifiedSources: briefingPack.scrapedArticles.map((a: any) => ({
+        title: a.title,
+        source: a.source,
+        link: a.url,
+        region: a.region,
+      })),
+      provider: aiConfig.providerLabel,
+      model: parsed._usedModel || aiConfig.model,
       generatedAt: new Date().toISOString(),
-      hasTavilyResearch: Boolean(verifiedResearchNotes),
     });
   } catch (error: any) {
     console.error("Script generation error:", error);
-    // Graceful fallback even if top-level processing fails
-    const fallback = generateFallbackScript(req.body?.pitch || {}, req.body?.targetActIndex);
-    res.json({
-      success: true,
-      count: (fallback.sections || []).length,
-      pitchId: req.body?.pitch?.id || "fallback-pitch",
-      sections: fallback.sections || [],
-      verifiedSources: req.body?.pitch?.verifiedSources || [],
-      provider: "Autonomous Script Fallback Engine",
-      model: "Local Documentary Screenwriter",
-      isFallback: true,
-      notice: "Notice: Upstream AI gateway is busy (502). Generated screenplay via local synthesis engine.",
-      generatedAt: new Date().toISOString(),
-      hasTavilyResearch: false,
+    return res.status(500).json({
+      success: false,
+      error: "SERVER_ERROR",
+      message: error.message || "Failed to generate script",
     });
   }
 });

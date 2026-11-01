@@ -60,20 +60,13 @@ export function getStorySections(story: StoryPitch): ScriptSection[] {
     });
   }
 
-  // 5. Outro (Synthesized takeaway if not present)
+  // 5. Outro
   if (script.outro) {
     sections.push({
       act: "OUTRO // THE BIG TAKEAWAY",
       cue: script.outro.visualCue,
       narration: script.outro.narration,
       timestamp: script.outro.timestamp || "8:45 – 10:00",
-    });
-  } else {
-    sections.push({
-      act: "OUTRO // THE BIG TAKEAWAY",
-      cue: "[CAPCUT CUES]\n• Fast punchy recap motion graphics linking Macro Trigger → Historical Precedent → Household Surcharge\n• Warm resolving acoustic guitar and synthesizer crescendo\n• Final title card with key consumer action takeaway",
-      narration: `The dots have always been connected. The challenge is that Wall Street and political soundbites are designed to keep you focused on the immediate splash, rather than the wave heading toward your shore.\n\nBy understanding how the macro trigger connects to historical precedents, you no longer have to be surprised when the bill lands on your table. You can anticipate the curve before it arrives.\n\nSubscribe for more autonomous documentary investigations, and drop your thoughts in the comments below.`,
-      timestamp: "8:45 – 10:00",
     });
   }
 

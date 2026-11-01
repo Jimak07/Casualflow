@@ -153,18 +153,7 @@ export default function Home() {
         },
       },
       script: {
-        sections: [
-          {
-            act: "Cold Open: The Breaking Shift",
-            cue: `[CapCut Cue: Dramatic map zoom into ${cluster.regions[0] || "conflict zone"}, flashing news headline overlay from ${cluster.outlets[0] || "wire"}]`,
-            narration: `${cluster.title}. Across ${cluster.regions.join(" and ")}, news outlets have confirmed breaking developments that carry profound global implications.`,
-          },
-          {
-            act: "Act I: Verified Facts & Multi-Outlet Evidence",
-            cue: `[CapCut Cue: Montage of news wire reports across ${cluster.outlets.slice(0, 3).join(", ")}]`,
-            narration: `${cluster.summary} Reporting from ${cluster.outlets.length} independent global agencies highlights the escalating stakes.`,
-          },
-        ],
+        sections: [],
       },
     };
   }, []);

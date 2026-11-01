@@ -64,6 +64,32 @@ export interface EvidencePack {
   contextArticles: VerifiedSource[];
 }
 
+export interface BriefingPackArticle {
+  title: string;
+  source: string;
+  url: string;
+  region?: string;
+  pubDate?: string;
+  paragraphsCount: number;
+  snippet?: string;
+  paragraphs?: string[];
+}
+
+export interface BriefingPackData {
+  topic: string;
+  consensusBadge?: string;
+  scrapedCount: number;
+  timelineCount: number;
+  articles: BriefingPackArticle[];
+  backgroundTimeline: {
+    title: string;
+    source: string;
+    url: string;
+    snippet: string;
+  }[];
+  briefingPackText?: string;
+}
+
 export interface StoryPitch {
   id: string;
   title: string;
@@ -82,6 +108,7 @@ export interface StoryPitch {
   verifiedSources?: VerifiedSource[];
   storylineMap?: StorylineMap;
   evidencePack?: EvidencePack;
+  briefingPack?: BriefingPackData;
   sourceCatalyst: {
     outlet: string;
     timeAgo: string;
