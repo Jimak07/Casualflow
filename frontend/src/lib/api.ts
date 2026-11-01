@@ -1,0 +1,14 @@
+/**
+ * Central API configuration for CausalFlow frontend
+ * Connects to the standalone backend API server (Render deployment)
+ */
+
+export const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, "") || "http://localhost:8000";
+
+export const API_ENDPOINTS = {
+  radar: `${API_BASE_URL}/api/radar`,
+  synthesize: `${API_BASE_URL}/api/synthesize`,
+  script: `${API_BASE_URL}/api/script`,
+  health: `${API_BASE_URL}/health`,
+};
