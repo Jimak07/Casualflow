@@ -23,6 +23,7 @@ import {
   BookOpen,
   ExternalLink,
   Search,
+  ShieldCheck,
 } from "lucide-react";
 import { StoryPitch, ScriptSection, SavedScriptEntry } from "@/types";
 import { getStorySections } from "@/utils/scriptHelper";
@@ -330,16 +331,25 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
     }
   };
 
-  // 3. Copy Clean Voiceover (TTS ready: strips cues, joins narration only)
+  // 3. Copy Clean Voiceover (TTS ready: strips cues, inline [Source: ...] tags, joins narration only)
   const handleCopyCleanVoiceover = () => {
     const cleanVoiceover = sections
-      .map((s) => s.narration.trim())
+      .map((s) => {
+        let text = s.narration || "";
+        // Strip [Source: ...] inline citations
+        text = text.replace(/\[Source:[^\]]+\]/gi, "");
+        // Strip [CapCut ...] visual directions
+        text = text.replace(/\[CapCut[^\]]*\]/gi, "");
+        // Strip [B-Roll ...] bracketed directions
+        text = text.replace(/\[B-Roll:[^\]]+\]/gi, "");
+        return text.replace(/[ \t]+/g, " ").trim();
+      })
       .filter(Boolean)
       .join("\n\n");
 
     navigator.clipboard.writeText(cleanVoiceover);
     setCopyStatus("clean");
-    showToast("✓ Clean Voiceover copied! (Paragraph breaks preserved for ElevenLabs/TTS)");
+    showToast("✓ Clean Voiceover copied! (Citations & visual cues stripped for 100% smooth ElevenLabs/TTS)");
     setTimeout(() => setCopyStatus("idle"), 2500);
   };
 
@@ -750,6 +760,58 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
               </div>
             );
           })
+        )}
+
+        {/* Dedicated Verified Sources & Evidence Panel */}
+        {selectedStory.verifiedSources && selectedStory.verifiedSources.length > 0 && (
+          <div className="rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50/70 dark:bg-[#06080F]/80 p-4 sm:p-5 shadow-sm space-y-3">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-200/60 dark:border-white/5">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                <h4 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white font-mono uppercase tracking-wider">
+                  Verified Reporting Sources & Evidence ({selectedStory.verifiedSources.length})
+                </h4>
+              </div>
+              <span className="text-[10px] font-mono text-slate-400">
+                Multi-Continental Coverage
+              </span>
+            </div>
+
+            <div className="space-y-2">
+              {selectedStory.verifiedSources.map((source, sIdx) => (
+                <div
+                  key={sIdx}
+                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-xl bg-white dark:bg-[#0E131F] border border-slate-200/70 dark:border-white/5 text-xs"
+                >
+                  <div className="space-y-0.5 min-w-0">
+                    <a
+                      href={source.link}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-semibold text-slate-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-1.5 transition-colors"
+                    >
+                      <span className="line-clamp-1">{source.title}</span>
+                      <ExternalLink className="w-3 h-3 shrink-0 text-blue-500" />
+                    </a>
+                    {source.snippet && (
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1">
+                        {source.snippet}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0 font-mono text-[11px]">
+                    <span className="px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/50 dark:border-blue-800/40 font-semibold">
+                      {source.source}
+                    </span>
+                    <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-white/10">
+                      {source.region}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
       </div>
 

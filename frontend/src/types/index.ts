@@ -1,7 +1,7 @@
 export interface ScriptSection {
   act: string;
   cue: string; // [CapCut Visual Cues]: B-roll, stock, sound effects, text overlay
-  narration: string; // Clean voiceover copy without brackets or stage directions
+  narration: string; // Spoken voiceover copy with inline citations [Source: ...]
   timestamp?: string;
 }
 
@@ -21,6 +21,15 @@ export interface DocumentaryScript {
   outro?: ScriptAct;
 }
 
+export interface VerifiedSource {
+  title: string;
+  source: string;
+  region: string;
+  link: string;
+  pubDate?: string;
+  snippet?: string;
+}
+
 export interface StoryPitch {
   id: string;
   title: string;
@@ -32,8 +41,11 @@ export interface StoryPitch {
   date: string;
   impactScore: number; // 0 - 100
   badge?: string;
+  consensusBadge?: string;
+  regionsReporting?: string[];
   searchQueries?: string[];
   historyShort?: string;
+  verifiedSources?: VerifiedSource[];
   sourceCatalyst: {
     outlet: string;
     timeAgo: string;
@@ -42,10 +54,13 @@ export interface StoryPitch {
   nodes: {
     macroTrigger: {
       title: string;
-      date: string;
+      date?: string;
       description: string;
       metricTag: string;
       source: string;
+      baselineOrigin?: string;
+      breakingUpdate?: string;
+      outletsReporting?: string;
     };
     historicalParallel: {
       title: string;
@@ -53,6 +68,8 @@ export interface StoryPitch {
       description: string;
       similarityScore: string;
       lesson: string;
+      mechanism?: string;
+      historicalPrecedent?: string;
     };
     humanImpact: {
       title: string;
@@ -60,6 +77,7 @@ export interface StoryPitch {
       description: string;
       dollarOrPriceMetric: string;
       actionableTakeaway: string;
+      groundLevelEffect?: string;
     };
   };
   script: DocumentaryScript;
@@ -74,6 +92,7 @@ export interface SavedScriptEntry {
   wordCount: number;
   runtime: string;
   sections: ScriptSection[];
+  verifiedSources?: VerifiedSource[];
 }
 
 export interface ApiKeysConfig {

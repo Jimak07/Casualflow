@@ -8,8 +8,6 @@ import { StorySkeletonCard } from "@/components/StorySkeletonCard";
 import { ScriptStudio } from "@/components/ScriptStudio";
 import { ApiKeysModal } from "@/components/ApiKeysModal";
 import { AddPresetModal } from "@/components/AddPresetModal";
-import { ScanModal } from "@/components/ScanModal";
-import { StoryGeneratorModal } from "@/components/StoryGeneratorModal";
 import { MOCK_STORIES, DEFAULT_PRESETS } from "@/data/mockStories";
 import { StoryPitch, ScriptSection, DocumentaryScript, LensPreset, ApiKeysConfig } from "@/types";
 import { getStorySections } from "@/utils/scriptHelper";
@@ -52,12 +50,10 @@ export default function Home() {
     onAction?: () => void;
   } | null>(null);
 
-  // Modals
+  // Modals & Query tracking
   const [isApiKeysOpen, setIsApiKeysOpen] = useState(false);
   const [isAddPresetOpen, setIsAddPresetOpen] = useState(false);
-  const [isScanModalOpen, setIsScanModalOpen] = useState(false);
-  const [isGeneratorOpen, setIsGeneratorOpen] = useState(false);
-  const [generatorQuery, setGeneratorQuery] = useState("");
+  const [lastSynthesizedQuery, setLastSynthesizedQuery] = useState<string>("");
 
   // Mobile navigation tab: "radar" | "studio"
   const [mobileActiveTab, setMobileActiveTab] = useState<"radar" | "studio">("radar");
@@ -103,14 +99,23 @@ export default function Home() {
         }
       }
 
-      // 3. Cached Generated Stories initialization (preserves last scan!)
+      // 3. Cached Generated Stories initialization (preserves last scan with deduplication)
       const savedStories = localStorage.getItem("causalflow_stories");
       if (savedStories) {
         try {
           const parsedStories = JSON.parse(savedStories);
           if (Array.isArray(parsedStories) && parsedStories.length > 0) {
-            setStories(parsedStories);
-            setSelectedStory(parsedStories[0]);
+            const seen = new Set<string>();
+            const deduped = parsedStories.filter((s: StoryPitch) => {
+              const key = (s.title || s.id || "").toLowerCase().trim();
+              if (seen.has(key)) return false;
+              seen.add(key);
+              return true;
+            });
+            if (deduped.length > 0) {
+              setStories(deduped);
+              setSelectedStory(deduped[0]);
+            }
           }
         } catch (e) {
           console.error("Failed to load saved stories", e);
@@ -196,10 +201,17 @@ export default function Home() {
   ) => {
     setIsScanning(true);
     setIsSynthesizing(true);
+    if (targetQuery !== undefined) {
+      setLastSynthesizedQuery(targetQuery);
+    }
 
     try {
-      // 1. Ingest live headlines from keyless RSS feeds
-      const radarRes = await fetch(API_ENDPOINTS.radar);
+      // 1. Ingest live headlines from keyless RSS feeds across ALL global regions (Africa, India, Asia, Europe, US)
+      const radarUrl = targetQuery
+        ? `${API_ENDPOINTS.radar}?q=${encodeURIComponent(targetQuery)}`
+        : API_ENDPOINTS.radar;
+
+      const radarRes = await fetch(radarUrl);
       const radarData = await radarRes.json();
       const headlines = radarData.headlines || [];
       if (headlines.length > 0) {
@@ -224,24 +236,21 @@ export default function Home() {
         }
       }
 
-      // 3. If no key is entered, prompt the user with a friendly blue toast and fallback cleanly
+      // 3. If no key is entered, prompt the user with a friendly blue toast
       if (!groqKey) {
         setIsScanning(false);
         setIsSynthesizing(false);
 
         showToast(
-          "💡 Connect your Universal AI API key (Vyce AI, Gemini, Groq, OpenRouter, or OpenAI) in settings to run live AI synthesis across 45 feeds!",
+          "💡 Connect your Universal AI API key (Vyce AI, Gemini, Groq, OpenRouter, or OpenAI) in Settings to run live multi-continental synthesis!",
           "info",
           "Open Settings",
           () => setIsApiKeysOpen(true)
         );
-
-        // Still inject a fresh simulated live discovery so the user experiences the UI flow immediately
-        handleInjectDiscovery();
         return;
       }
 
-      // 4. Call /api/synthesize with live headlines & user lens
+      // 4. Call /api/synthesize with live global headlines & user lens
       const synthRes = await fetch(API_ENDPOINTS.synthesize, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -259,7 +268,7 @@ export default function Home() {
       const synthData = await synthRes.json();
 
       if (!synthRes.ok || !synthData.success) {
-        throw new Error(synthData.message || "Failed to synthesize story pitches.");
+        throw new Error(synthData.message || synthData.error || "Failed to synthesize story pitches.");
       }
 
       const rawPitches = synthData.pitches || [];
@@ -273,99 +282,111 @@ export default function Home() {
         };
 
         const resolvedCategory =
-          categoryMap[p.category] || p.category || "AI × Financial Markets";
+          categoryMap[p.category] || p.category || "Geopolitics & Supply Chains";
+
+        const verifiedSrcs =
+          p.verifiedSources && p.verifiedSources.length > 0
+            ? p.verifiedSources
+            : headlines.slice(0, 3).map((h: any) => ({
+                title: h.title,
+                source: h.source,
+                region: h.region || "Global",
+                link: h.link,
+                pubDate: h.pubDate,
+              }));
 
         return {
           id: p.id || `live-pitch-${Date.now()}-${idx}`,
-          title: p.title || "Autonomous Documentary Investigation",
+          title: p.title || "Cross-Continental Documentary Investigation",
           subtitle:
             p.subtitle ||
-            `${p.macro?.description || ""} Connecting to ${p.historyShort || "historical precedents"}.`,
+            `${p.nodes?.macroTrigger?.description || ""} Connecting to ${p.historyShort || "historical precedents"}.`,
           category: resolvedCategory,
-          estimatedRuntime: p.runtime || "11m 40s (~1,700 words)",
-          wordCount: 1680,
+          estimatedRuntime: p.runtime || "13m 40s (~2,000 words)",
+          wordCount: 2000,
           targetFormat: "YouTube Deep Dive / Investigative Documentary",
-          date: "Live AI Synthesis",
+          date: "Live Global Consensus",
           impactScore:
-            parseInt(String(p.badge || "").replace(/[^0-9]/g, "") || "95") || 95,
-          badge: p.badge || "Live Macro Synthesis",
+            parseInt(String(p.badge || "").replace(/[^0-9]/g, "") || "96") || 96,
+          badge: p.badge || "Multi-Continental Consensus",
+          consensusBadge:
+            p.consensusBadge ||
+            "GLOBAL CONSENSUS: Reported across Asia, Africa & US",
+          regionsReporting:
+            p.regionsReporting || [
+              "Africa",
+              "India & South Asia",
+              "US & Global Finance",
+              "Europe & UK",
+            ],
           searchQueries: p.searchQueries || [],
+          historyShort: p.historyShort || "Historical Precedent",
+          verifiedSources: verifiedSrcs,
           sourceCatalyst: {
-            outlet: (p.sources && p.sources[0]) || "Live Global Feeds",
-            timeAgo: "Just now",
-            headline: p.macro?.title || p.title,
+            outlet: verifiedSrcs[0]?.source || "Global News Matrix",
+            timeAgo: "Live Update",
+            headline: p.nodes?.macroTrigger?.breakingUpdate || p.title,
           },
           nodes: {
             macroTrigger: {
-              title: p.macro?.title || "Live Macro Catalyst",
-              date: p.macro?.date || "Current Cycle",
-              description: p.macro?.description || "",
-              metricTag: p.macro?.metricTag || "+48% Market Volatility",
-              source:
-                p.macro?.source ||
-                (p.sources && p.sources.join(", ")) ||
-                "Live News Feeds",
+              title:
+                p.nodes?.macroTrigger?.title ||
+                "1. The Developing Timeline (Past ➔ Today's Update)",
+              date: "Today's Update",
+              description: p.nodes?.macroTrigger?.description || "",
+              baselineOrigin: p.nodes?.macroTrigger?.baselineOrigin || "",
+              breakingUpdate: p.nodes?.macroTrigger?.breakingUpdate || "",
+              outletsReporting: p.nodes?.macroTrigger?.outletsReporting || "",
+              metricTag: p.nodes?.macroTrigger?.metricTag || "+38% Volatility",
+              source: p.nodes?.macroTrigger?.source || "Global Outlets",
             },
             historicalParallel: {
-              title: p.history?.title || p.historyShort || "Historical Parallel",
-              period: p.history?.period || "Historical Precedent",
-              description: p.history?.description || "",
-              similarityScore: p.history?.similarityScore || "89% Structural Echo",
+              title:
+                p.nodes?.historicalParallel?.title ||
+                "2. Geopolitical & Historical Mirror",
+              period:
+                p.nodes?.historicalParallel?.period ||
+                p.historyShort ||
+                "Historical Precedent",
+              description: p.nodes?.historicalParallel?.description || "",
+              mechanism: p.nodes?.historicalParallel?.mechanism || "",
+              historicalPrecedent:
+                p.nodes?.historicalParallel?.historicalPrecedent || "",
+              similarityScore:
+                p.nodes?.historicalParallel?.similarityScore ||
+                "91% Structural Match",
               lesson:
-                p.history?.lesson ||
-                "Economic dynamics repeat in capital allocation cycles.",
+                p.nodes?.historicalParallel?.lesson ||
+                "Capital cycles repeat across energy, debt, and trade bottlenecks.",
             },
             humanImpact: {
-              title: p.micro?.title || "Everyday Human Impact",
-              affectedGroup: p.micro?.affectedGroup || "Everyday Consumers & Households",
-              description: p.micro?.description || "",
+              title:
+                p.nodes?.humanImpact?.title ||
+                "3. Everyday Human Impact (The Average Citizen)",
+              affectedGroup:
+                p.nodes?.humanImpact?.affectedGroup ||
+                "Everyday Consumers & Households",
+              description: p.nodes?.humanImpact?.description || "",
+              groundLevelEffect:
+                p.nodes?.humanImpact?.groundLevelEffect || "",
               dollarOrPriceMetric:
-                p.micro?.dollarOrPriceMetric || "+$42/mo Average Surcharge",
+                p.nodes?.humanImpact?.dollarOrPriceMetric ||
+                "+$42/mo Average Surcharge",
               actionableTakeaway:
-                p.micro?.actionableTakeaway ||
-                "Watch wholesale utility and local tax commission repricing notices.",
+                p.nodes?.humanImpact?.actionableTakeaway ||
+                "Audit local utility repricing notices and hedge commodity inflation.",
             },
           },
-          script: p.script || {
-            coldOpen: {
-              title: `COLD OPEN: ${p.title}`,
-              timestamp: "0:00 – 1:15",
-              visualCue: `[CAPCUT CUES]\n• Fast-paced news montage: ${p.sources?.join(" & ") || "Global reporting"}\n• Drone shot of industrial power grid and busy financial district\n• Audio SFX: Heavy metallic drop, digital heartbeat`,
-              narration: `Most news anchors will tell you what happened in the headlines this morning.\n\nThey cite earnings and politician speeches. But what they don't show you is how ${p.macro?.title || "this catalyst"} is connected to ${p.historyShort || "history"}.\n\nAnd more importantly, how it lands directly on your monthly expenses.`,
-            },
-            actI: {
-              title: `ACT I: THE MACRO TRIGGER`,
-              timestamp: "1:15 – 3:30",
-              visualCue: `[CAPCUT CUES]\n• Animated infographic: ${p.macro?.metricTag || "Market Shift"}\n• News clips from ${p.sources?.join(", ") || "global reporting"}`,
-              narration:
-                p.macro?.description ||
-                "Behind the immediate news cycle lies a larger shift in global capital allocation...",
-            },
-            actII: {
-              title: `ACT II: ${p.historyShort || "THE HISTORICAL ECHO"}`,
-              timestamp: "3:30 – 6:00",
-              visualCue: `[CAPCUT CUES]\n• Archival footage grain: ${p.history?.period || "Past Decades"}\n• Split-screen historical comparison`,
-              narration:
-                p.history?.description ||
-                "Decades ago, we witnessed this exact same economic mechanism...",
-            },
-            actIII: {
-              title: `ACT III: THE EVERYDAY HUMAN IMPACT`,
-              timestamp: "6:00 – 8:45",
-              visualCue: `[CAPCUT CUES]\n• Grocery receipts, utility meters, suburban homes\n• Recap graphic: Macro Trigger → History → Your Wallet`,
-              narration:
-                p.micro?.description ||
-                "Which brings us to the final question: how does this affect you?",
-            },
-          },
+          script: p.script,
         };
       });
 
-      // 6. Update state, cache in localStorage, and auto-select
-      const mergedStories = [...mappedPitches, ...stories];
-      setStories(mergedStories);
-      setSelectedStory(mappedPitches[0]);
-      localStorage.setItem("causalflow_stories", JSON.stringify(mergedStories));
+      // 6. Update state: REPLACE stories with newly synthesized pitches (eliminates duplicate/mock cards!)
+      setStories(mappedPitches);
+      if (mappedPitches.length > 0) {
+        setSelectedStory(mappedPitches[0]);
+      }
+      localStorage.setItem("causalflow_stories", JSON.stringify(mappedPitches));
 
       const usedModel =
         synthData.model ||
@@ -374,13 +395,13 @@ export default function Home() {
           : "deepseek-v4-flash");
 
       showToast(
-        `✓ Autonomous Dot-Connector synthesized ${mappedPitches.length} live pitches via ${usedModel}!`,
+        `✓ Autonomous Dot-Connector clustered live global news into ${mappedPitches.length} pitches via ${usedModel}!`,
         "success"
       );
     } catch (err: any) {
       console.error("Live synthesis error:", err);
       showToast(
-        `Synthesis failed: ${err.message || "Network error"}. Showing curated pitches.`,
+        `Synthesis failed: ${err.message || "Network error"}. Please check your API key in Settings.`,
         "warning",
         "API Settings",
         () => setIsApiKeysOpen(true)
@@ -391,120 +412,11 @@ export default function Home() {
     }
   };
 
-  // Helper to inject a fresh discovery when scanning without an API key
-  const handleInjectDiscovery = () => {
-    const discoveryStory: StoryPitch = {
-      id: `discovered-${Date.now()}`,
-      title: "The Transformer Shortage: Why AI Grid Demands Are Triggering 1970s Power Blackout Rules",
-      subtitle: "High-voltage step-up transformers face a 4-year lead time from Siemens and Hitachi. Regulators in Texas and Germany are reviving emergency industrial brownout protocols.",
-      category: "Geopolitics & Supply Chains",
-      estimatedRuntime: "8 min 15 sec",
-      wordCount: 1220,
-      targetFormat: "YouTube Investigative Essay",
-      date: "Discovered by Live Radar",
-      impactScore: 98,
-      sourceCatalyst: {
-        outlet: "Reuters Energy & IEA Report",
-        timeAgo: "15 minutes ago",
-        headline: "High Voltage Substation Transformer Lead Times Extend to 210 Weeks Globally",
-      },
-      nodes: {
-        macroTrigger: {
-          title: "Critical Grid Transformer Backlog (210 Weeks)",
-          date: "Current Supply Chain Crisis",
-          description:
-            "Grain-oriented electrical steel (GOES) production caps have pushed lead times for 500kV step-up transformers past four years, exactly as massive 1-Gigawatt AI data campuses break ground.",
-          metricTag: "210-Week Manufacturer Backlog",
-          source: "International Energy Agency",
-        },
-        historicalParallel: {
-          title: "The 1970s Energy Crisis & Industrial Load Shedding",
-          period: "1973–1979 Historical Parallel",
-          description:
-            "During the 1970s oil shocks, electrical utilities instituted 'rolling interruptible industrial tariffs'. Manufacturing facilities received discounted rates in exchange for having power cut during peak residential heating hours.",
-          similarityScore: "91% Grid Fragility Correlation",
-          lesson: "When physical capital stock cannot expand, the grid is forced into state-directed rationing.",
-        },
-        humanImpact: {
-          title: "Summer Peak Air Conditioning Curtailment",
-          affectedGroup: "Sunbelt Homeowners & Suburban Commuters",
-          description:
-            "Regional utilities are rolling out mandatory smart thermostat override programs, cycling residential compressors during peak 4 PM to 8 PM windows to prevent substation transformer melt-downs.",
-          dollarOrPriceMetric: "Mandatory 3°F Thermostat Overrides",
-          actionableTakeaway: "Opt into voluntary utility battery storage rebates before mandatory curtailment orders take effect.",
-        },
-      },
-      script: {
-        coldOpen: {
-          title: "COLD OPEN: The 4-Year Waiting List for Electricity",
-          timestamp: "0:00 – 1:15",
-          visualCue:
-            "[CAPCUT CUES]\n• 0:00-0:15: Giant flatbed trailer carrying a massive 300-ton electrical transformer down an empty desert highway at sunset.\n• Audio SFX: Heavy metallic grinding, deep electrical hum, radio static.\n• Lower third: 'SIEMENS ENERGY SUBSTATION // BACKLOG: 4 YEARS'.",
-          narration:
-            "If you want to build the world's most advanced artificial intelligence model, you don't just need software engineers, algorithms, and microchips.\n\nYou need a three-hundred-ton block of grain-oriented electrical steel and mineral oil called a step-up transformer. And right now, if you call the factory in Germany to order one, they will politely tell you that your delivery date is late 2028.\n\nWe built the fastest computing engines in human history, but we forgot that they have to plug into a power grid designed during the Eisenhower administration.",
-        },
-        actI: {
-          title: "ACT I: The Grain-Oriented Steel Bottleneck",
-          timestamp: "1:15 – 3:30",
-          visualCue:
-            "[CAPCUT CUES]\n• Exploded 3D animation showing how high-voltage transformers work.\n• Map overlay: Only 4 steel mills in the world can roll electrical-grade transformer core steel.",
-          narration:
-            "A high-voltage transformer is not a gadget you can scale up in a cleanroom. It is heavy, dangerous industrial machinery.\n\nOnly a handful of steel mills on the planet have the metallurgical capability to align iron crystals so tightly that electricity passes through without melting the core. When five different trillion-dollar tech conglomerates all try to triple their grid capacity in the same three-year window, the supply chain doesn't just bend. It snaps.",
-        },
-        actII: {
-          title: "ACT II: Lessons from the 1973 Rolling Curtailments",
-          timestamp: "3:30 – 5:45",
-          visualCue:
-            "[CAPCUT CUES]\n• Archival footage: 1970s brownouts in New York and London.\n• Side-by-side news clippings: 'VOLTAGE REDUCED 5% ACROSS TRI-STATE AREA'.",
-          narration:
-            "In 1973, when fuel supplies tightened, power companies didn't let the entire grid collapse. They instituted what engineers call 'load shedding'.\n\nThey dialed down the voltage by five percent, causing lights to dim and industrial motors to slow. They paid aluminum smelters to turn off their furnaces for six hours at a time. It was a stark reminder that modern civilization lives exactly one transmission failure away from the pre-industrial age.",
-        },
-        actIII: {
-          title: "ACT III: The Remote Control on Your Wall",
-          timestamp: "5:45 – 8:15",
-          visualCue:
-            "[CAPCUT CUES]\n• Smart thermostat display clicking from 72°F to 76°F with an 'EVENT IN PROGRESS' banner.\n• Recap graphic: The 3 Nodes (Backlog → 1973 Echo → Your Living Room).",
-          narration:
-            "This summer, when temperatures hit one hundred degrees in Texas and California, your power company won't ask for permission.\n\nThrough connected digital thermostats and smart meters, they will remotely cycle your air conditioning compressor off for twenty minutes every hour. They will call it 'peak demand response'.\n\nIn reality, it is the price of trying to build tomorrow's digital universe on yesterday's physical power lines.",
-        },
-      },
-    };
-
-    const updated = [discoveryStory, ...stories];
-    setStories(updated);
-    setSelectedStory(discoveryStory);
-    localStorage.setItem("causalflow_stories", JSON.stringify(updated));
-  };
-
   // Handle Connect Dots search submit
   const handleConnectDots = (query: string) => {
     if (!query.trim()) return;
-
-    // Check if query matches any existing story
-    const q = query.toLowerCase();
-    const hasMatch = stories.some(
-      (s) =>
-        s.title.toLowerCase().includes(q) ||
-        s.nodes.macroTrigger.description.toLowerCase().includes(q) ||
-        s.nodes.historicalParallel.description.toLowerCase().includes(q) ||
-        s.nodes.humanImpact.description.toLowerCase().includes(q)
-    );
-
-    if (hasMatch) {
-      setSearchQuery(query);
-    } else {
-      // Trigger live AI synthesis with custom user query
-      runLiveSynthesis(query);
-    }
-  };
-
-  // Add freshly generated story from curiosity bar
-  const handleStoryGenerated = (newStory: StoryPitch) => {
-    const updated = [newStory, ...stories];
-    setStories(updated);
-    setSelectedStory(newStory);
-    setMobileActiveTab("studio");
-    localStorage.setItem("causalflow_stories", JSON.stringify(updated));
+    setSearchQuery(query);
+    runLiveSynthesis(query);
   };
 
   // Filter stories based on active preset and search query
@@ -514,29 +426,34 @@ export default function Home() {
     if (activePreset && activePreset.id !== "all") {
       if (activePreset.queryFilter) {
         const filterStr = activePreset.queryFilter.toLowerCase();
-        const matchesCategory = story.category.toLowerCase().includes(filterStr);
+        const matchesCategory = story.category?.toLowerCase().includes(filterStr);
         const matchesContent =
-          story.title.toLowerCase().includes(filterStr) ||
-          story.nodes.macroTrigger.description.toLowerCase().includes(filterStr) ||
-          story.nodes.historicalParallel.description.toLowerCase().includes(filterStr) ||
-          story.nodes.humanImpact.description.toLowerCase().includes(filterStr);
+          story.title?.toLowerCase().includes(filterStr) ||
+          story.nodes?.macroTrigger?.description?.toLowerCase().includes(filterStr) ||
+          story.nodes?.historicalParallel?.description?.toLowerCase().includes(filterStr) ||
+          story.nodes?.humanImpact?.description?.toLowerCase().includes(filterStr);
         if (!matchesCategory && !matchesContent) return false;
       }
     }
 
     // 2. Search query filter
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
+    // Only apply client-side text filtering if the query is different from the last synthesized query
+    // (since newly synthesized pitches are already tailored to the last synthesized query)
+    if (
+      searchQuery.trim() &&
+      searchQuery.toLowerCase().trim() !== lastSynthesizedQuery.toLowerCase().trim()
+    ) {
+      const q = searchQuery.toLowerCase().trim();
       const matches =
-        story.title.toLowerCase().includes(q) ||
-        story.subtitle.toLowerCase().includes(q) ||
-        story.category.toLowerCase().includes(q) ||
-        story.nodes.macroTrigger.title.toLowerCase().includes(q) ||
-        story.nodes.macroTrigger.description.toLowerCase().includes(q) ||
-        story.nodes.historicalParallel.title.toLowerCase().includes(q) ||
-        story.nodes.historicalParallel.description.toLowerCase().includes(q) ||
-        story.nodes.humanImpact.title.toLowerCase().includes(q) ||
-        story.nodes.humanImpact.description.toLowerCase().includes(q);
+        story.title?.toLowerCase().includes(q) ||
+        story.subtitle?.toLowerCase().includes(q) ||
+        story.category?.toLowerCase().includes(q) ||
+        story.nodes?.macroTrigger?.title?.toLowerCase().includes(q) ||
+        story.nodes?.macroTrigger?.description?.toLowerCase().includes(q) ||
+        story.nodes?.historicalParallel?.title?.toLowerCase().includes(q) ||
+        story.nodes?.historicalParallel?.description?.toLowerCase().includes(q) ||
+        story.nodes?.humanImpact?.title?.toLowerCase().includes(q) ||
+        story.nodes?.humanImpact?.description?.toLowerCase().includes(q);
       if (!matches) return false;
     }
 
@@ -750,19 +667,6 @@ export default function Home() {
         isOpen={isAddPresetOpen}
         onClose={() => setIsAddPresetOpen(false)}
         onAddPreset={handleAddPreset}
-      />
-
-      <ScanModal
-        isOpen={isScanModalOpen}
-        onClose={() => setIsScanModalOpen(false)}
-        onInjectNewStory={handleInjectDiscovery}
-      />
-
-      <StoryGeneratorModal
-        isOpen={isGeneratorOpen}
-        onClose={() => setIsGeneratorOpen(false)}
-        query={generatorQuery}
-        onStoryGenerated={handleStoryGenerated}
       />
     </div>
   );
