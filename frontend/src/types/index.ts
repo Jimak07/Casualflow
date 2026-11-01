@@ -77,6 +77,7 @@ export interface SavedScriptEntry {
 }
 
 export interface ApiKeysConfig {
+  apiKey?: string;
   groqKey: string;
   tavilyKey: string;
   customRssUrl: string;

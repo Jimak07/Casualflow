@@ -165,7 +165,7 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
     onUpdateStoryScript(selectedStory.id, updated);
   };
 
-  // 1. Deep Context Search & Full Script Generation (Tavily + Groq)
+  // 1. Deep Context Search & Full Script Generation (Tavily + Groq / Universal AI)
   const handleDeepResearchAndGenerate = async () => {
     let groqKey = "";
     let tavilyKey = "";
@@ -175,7 +175,7 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
-          groqKey = parsed.groqKey || "";
+          groqKey = parsed.apiKey || parsed.groqKey || "";
           tavilyKey = parsed.tavilyKey || "";
         } catch (e) {
           console.error("Failed to parse api keys", e);
@@ -184,7 +184,7 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
     }
 
     if (!groqKey) {
-      showToast("💡 Please configure your free Groq API key in Settings to run AI research & scriptwriting!");
+      showToast("💡 Please configure your Universal AI API key (Gemini, Groq, OpenRouter, or OpenAI) in Settings to run AI research & scriptwriting!");
       onOpenApiKeys();
       return;
     }
@@ -194,7 +194,7 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
 
     try {
       setTimeout(() => {
-        setGenerationStep("2/2 Writing 5-Act production documentary script via Llama 3.3 70B...");
+        setGenerationStep("2/2 Writing 5-Act production documentary script via Universal AI...");
       }, 1800);
 
       const res = await fetch(API_ENDPOINTS.script, {
@@ -202,6 +202,7 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           pitch: selectedStory,
+          apiKey: groqKey,
           groqKey,
           tavilyKey,
         }),
@@ -233,7 +234,7 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
       showToast(
         data.hasTavilyResearch
           ? "✓ Verified with Tavily Research & drafted full 5-act script!"
-          : "✓ Drafted 5-act production script via Llama 3.3 70B!"
+          : "✓ Drafted 5-act production script via Universal AI!"
       );
     } catch (err: any) {
       console.error("Script generation error:", err);
@@ -254,7 +255,7 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
-          groqKey = parsed.groqKey || "";
+          groqKey = parsed.apiKey || parsed.groqKey || "";
           tavilyKey = parsed.tavilyKey || "";
         } catch (e) {
           console.error("Failed to parse api keys", e);
@@ -263,7 +264,7 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
     }
 
     if (!groqKey) {
-      showToast("💡 Add your free Groq key in Settings to regenerate individual acts!");
+      showToast("💡 Add your Universal AI API key in Settings to regenerate individual acts!");
       onOpenApiKeys();
       return;
     }
@@ -278,6 +279,7 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
           pitch: selectedStory,
           targetActIndex: actIndex,
           currentSections: sections,
+          apiKey: groqKey,
           groqKey,
           tavilyKey,
         }),

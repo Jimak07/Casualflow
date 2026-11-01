@@ -2,6 +2,7 @@ import express, { Request, Response } from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import Parser from "rss-parser";
+import { detectAiProvider, callUniversalAi } from "./aiProvider.js";
 
 dotenv.config();
 
@@ -199,31 +200,27 @@ app.get("/api/radar", async (_req: Request, res: Response) => {
 // 3. Autonomous Dot-Connector Route (POST /api/synthesize)
 app.post("/api/synthesize", async (req: Request, res: Response) => {
   try {
-    const { headlines = [], preset = "all", customQuery = "", groqKey = "" } = req.body;
+    const {
+      headlines = [],
+      preset = "all",
+      customQuery = "",
+      apiKey = "",
+      groqKey = "",
+    } = req.body;
 
-    const apiKey =
-      (groqKey && groqKey.trim()) ||
-      process.env.GROQ_API_KEY ||
-      process.env.OPENROUTER_API_KEY ||
-      "";
+    const rawKey = apiKey || groqKey;
+    const aiConfig = detectAiProvider(rawKey);
 
-    if (!apiKey) {
+    if (!aiConfig) {
       return res.status(400).json({
         success: false,
         error: "NO_API_KEY",
         message:
-          "No Groq API key configured. Please add your free key in the 'API Keys ($0 Stack)' modal.",
+          "No AI API key configured. Please paste your Gemini, Groq, OpenRouter, or OpenAI key in the Settings modal.",
       });
     }
 
-    const isOpenRouter = apiKey.startsWith("sk-or-");
-    const endpoint = isOpenRouter
-      ? "https://openrouter.ai/api/v1/chat/completions"
-      : "https://api.groq.com/openai/v1/chat/completions";
-
-    const modelName = isOpenRouter
-      ? "meta-llama/llama-3.3-70b-instruct"
-      : "llama-3.3-70b-versatile";
+    console.log(`[CausalFlow Backend] Synthesizing pitches with ${aiConfig.providerLabel}`);
 
     const headlineSample = (headlines || [])
       .slice(0, 30)
@@ -309,40 +306,18 @@ ${headlineSample}
 
 Synthesize 4 distinct, high-impact documentary pitches connecting these live headlines to historical echoes and everyday human impact.`;
 
-    const groqResponse = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: modelName,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        response_format: { type: "json_object" },
-        temperature: 0.7,
-        max_tokens: 4000,
-      }),
+    const parsed = await callUniversalAi({
+      config: aiConfig,
+      systemPrompt,
+      userPrompt,
+      maxTokens: 4000,
+      temperature: 0.7,
     });
-
-    if (!groqResponse.ok) {
-      const err = await groqResponse.text();
-      return res.status(groqResponse.status).json({
-        success: false,
-        error: "API_ERROR",
-        message: `Inference failed: ${err.slice(0, 200)}`,
-      });
-    }
-
-    const data = await groqResponse.json();
-    const rawContent = data.choices?.[0]?.message?.content;
-    const parsed = JSON.parse(rawContent);
 
     res.json({
       success: true,
       count: (parsed.pitches || []).length,
+      provider: aiConfig.providerLabel,
       synthesizedAt: new Date().toISOString(),
       pitches: parsed.pitches || [],
     });
@@ -360,6 +335,7 @@ app.post("/api/script", async (req: Request, res: Response) => {
   try {
     const {
       pitch,
+      apiKey = "",
       groqKey = "",
       tavilyKey = "",
       targetActIndex = null,
@@ -374,29 +350,19 @@ app.post("/api/script", async (req: Request, res: Response) => {
       });
     }
 
-    const apiKey =
-      (groqKey && groqKey.trim()) ||
-      process.env.GROQ_API_KEY ||
-      process.env.OPENROUTER_API_KEY ||
-      "";
+    const rawKey = apiKey || groqKey;
+    const aiConfig = detectAiProvider(rawKey);
 
-    if (!apiKey) {
+    if (!aiConfig) {
       return res.status(400).json({
         success: false,
         error: "NO_API_KEY",
         message:
-          "No Groq API key configured. Please add your free key in the 'API Keys ($0 Stack)' modal.",
+          "No AI API key configured. Please paste your Gemini, Groq, OpenRouter, or OpenAI key in the Settings modal.",
       });
     }
 
-    const isOpenRouter = apiKey.startsWith("sk-or-");
-    const endpoint = isOpenRouter
-      ? "https://openrouter.ai/api/v1/chat/completions"
-      : "https://api.groq.com/openai/v1/chat/completions";
-
-    const modelName = isOpenRouter
-      ? "meta-llama/llama-3.3-70b-instruct"
-      : "llama-3.3-70b-versatile";
+    console.log(`[CausalFlow Backend] Generating documentary script with ${aiConfig.providerLabel}`);
 
     // Step A: Fact & History Verification (Tavily API with Graceful Fallback)
     const effectiveTavilyKey =
@@ -575,36 +541,13 @@ ${verifiedResearchNotes}
 Generate the full 5-act production documentary screenplay (1,500 - 2,000 words total voiceover) formatted cleanly in the required JSON structure.`;
     }
 
-    const groqResponse = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: modelName,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        response_format: { type: "json_object" },
-        temperature: 0.72,
-        max_tokens: 4500,
-      }),
+    const parsed = await callUniversalAi({
+      config: aiConfig,
+      systemPrompt,
+      userPrompt,
+      maxTokens: 4500,
+      temperature: 0.72,
     });
-
-    if (!groqResponse.ok) {
-      const errText = await groqResponse.text();
-      return res.status(groqResponse.status).json({
-        success: false,
-        error: "API_ERROR",
-        message: `Inference failed: ${errText.slice(0, 200)}`,
-      });
-    }
-
-    const data = await groqResponse.json();
-    const rawContent = data.choices?.[0]?.message?.content;
-    const parsed = JSON.parse(rawContent);
 
     if (isSingleActRegen) {
       return res.json({

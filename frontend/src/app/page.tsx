@@ -206,14 +206,14 @@ export default function Home() {
         setLiveHeadlineCount(headlines.length);
       }
 
-      // 2. Retrieve user's Groq key from localStorage
+      // 2. Retrieve user's Universal AI key from localStorage
       let groqKey = "";
       if (typeof window !== "undefined") {
         const savedKeys = localStorage.getItem("causalflow_api_keys");
         if (savedKeys) {
           try {
             const parsed = JSON.parse(savedKeys);
-            groqKey = parsed.groqKey || "";
+            groqKey = parsed.apiKey || parsed.groqKey || "";
           } catch (e) {
             console.error("Failed to parse api keys", e);
           }
@@ -226,7 +226,7 @@ export default function Home() {
         setIsSynthesizing(false);
 
         showToast(
-          "💡 Connect your free Groq API key ($0 Stack) in settings to run live AI synthesis across 45 feeds!",
+          "💡 Connect your Universal AI API key (Gemini, Groq, OpenRouter, or OpenAI) in settings to run live AI synthesis across 45 feeds!",
           "info",
           "Open Settings",
           () => setIsApiKeysOpen(true)
@@ -245,6 +245,7 @@ export default function Home() {
           headlines,
           preset: targetPresetId || activePresetId,
           customQuery: targetQuery || searchQuery || "",
+          apiKey: groqKey,
           groqKey,
         }),
       });
