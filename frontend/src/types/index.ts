@@ -111,3 +111,37 @@ export type LensPreset = {
   queryFilter?: string;
   isCustom?: boolean;
 };
+
+export type GeopoliticalNiche =
+  | "all"
+  | "wars-conflicts"
+  | "outbreaks-health"
+  | "ai-tech"
+  | "macro-trade";
+
+export type SortMode = "consensus" | "latest" | "sensitivity" | "relevance";
+
+export interface ClusteredNewsArticle {
+  title: string;
+  source: string;
+  region: string;
+  link: string;
+  pubDate: string;
+  snippet?: string;
+}
+
+export interface ClusteredNewsEvent {
+  id: string;
+  title: string;
+  summary: string;
+  primaryNiche: GeopoliticalNiche;
+  sensitivityLabel: string;
+  consensusBadge: string;
+  outlets: string[];
+  regions: string[];
+  consensusScore: number;
+  recencyScore: number;
+  timeAgo: string;
+  sensitivityScore: number;
+  articles: ClusteredNewsArticle[];
+}

@@ -11,6 +11,7 @@ import {
   generateRssConsensusPitches,
   generateFallbackScript,
 } from "./fallbackSynthesis.js";
+import { clusterAndScoreHeadlines } from "./clustering.js";
 
 dotenv.config();
 
@@ -239,6 +240,18 @@ const GLOBAL_RSS_MATRIX: FeedConfig[] = [
     category: "geopolitics",
   },
   {
+    url: "http://feeds.bbci.co.uk/news/technology/rss.xml",
+    source: "BBC Tech",
+    region: "Europe & UK",
+    category: "tech",
+  },
+  {
+    url: "http://feeds.bbci.co.uk/news/health/rss.xml",
+    source: "BBC Health",
+    region: "Europe & UK",
+    category: "geopolitics",
+  },
+  {
     url: "https://rss.dw.com/rdf/rss-en-all",
     source: "Deutsche Welle",
     region: "Europe & UK",
@@ -252,6 +265,18 @@ const GLOBAL_RSS_MATRIX: FeedConfig[] = [
   },
 
   // 6. US & Global Finance
+  {
+    url: "https://news.google.com/rss/search?q=site:cnn.com+when:2d&hl=en-US&gl=US&ceid=US:en",
+    source: "CNN",
+    region: "US & Global Finance",
+    category: "geopolitics",
+  },
+  {
+    url: "https://news.google.com/rss/search?q=site:reuters.com+when:2d&hl=en-US&gl=US&ceid=US:en",
+    source: "Reuters",
+    region: "US & Global Finance",
+    category: "geopolitics",
+  },
   {
     url: "https://finance.yahoo.com/news/rssindex",
     source: "Yahoo Finance",
@@ -297,25 +322,25 @@ app.get("/api/radar", async (req: Request, res: Response) => {
       const encodedQuery = encodeURIComponent(query);
       activeFeeds.unshift(
         {
-          url: `https://news.google.com/rss/search?q=${encodedQuery}&hl=en-US&gl=US&ceid=US:en`,
+          url: `https://news.google.com/rss/search?q=${encodedQuery}+when:2d&hl=en-US&gl=US&ceid=US:en`,
           source: "Google News (US/Global)",
           region: "US & Global Finance",
           category: "geopolitics",
         },
         {
-          url: `https://news.google.com/rss/search?q=${encodedQuery}&hl=en-IN&gl=IN&ceid=IN:en`,
+          url: `https://news.google.com/rss/search?q=${encodedQuery}+when:2d&hl=en-IN&gl=IN&ceid=IN:en`,
           source: "Google News (India)",
           region: "India & South Asia",
           category: "geopolitics",
         },
         {
-          url: `https://news.google.com/rss/search?q=${encodedQuery}&hl=en-GB&gl=GB&ceid=GB:en`,
+          url: `https://news.google.com/rss/search?q=${encodedQuery}+when:2d&hl=en-GB&gl=GB&ceid=GB:en`,
           source: "Google News (Europe)",
           region: "Europe & UK",
           category: "geopolitics",
         },
         {
-          url: `https://news.google.com/rss/search?q=${encodedQuery}&hl=en-NG&gl=NG&ceid=NG:en`,
+          url: `https://news.google.com/rss/search?q=${encodedQuery}+when:2d&hl=en-NG&gl=NG&ceid=NG:en`,
           source: "Google News (Africa)",
           region: "Africa",
           category: "geopolitics",
@@ -419,13 +444,16 @@ app.get("/api/radar", async (req: Request, res: Response) => {
       });
     }
 
+    // Run pure algorithmic clustering and scoring across all unique articles
+    const clusters = clusterAndScoreHeadlines(uniqueHeadlines, query);
     const topHeadlines = uniqueHeadlines.slice(0, 70);
 
     res.json({
       success: true,
       query: query || null,
-      count: topHeadlines.length,
+      count: clusters.length,
       scannedAt: new Date().toISOString(),
+      clusters,
       headlines: topHeadlines,
     });
   } catch (error: any) {
@@ -433,6 +461,7 @@ app.get("/api/radar", async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       error: error.message || "Failed to ingest live feeds",
+      clusters: [],
       headlines: [],
     });
   }

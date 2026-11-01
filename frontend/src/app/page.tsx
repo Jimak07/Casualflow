@@ -1,46 +1,48 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Navbar } from "@/components/Navbar";
-import { CuriosityBar } from "@/components/CuriosityBar";
-import { StoryPitchCard } from "@/components/StoryPitchCard";
+import { NewsSearchEngineBar } from "@/components/NewsSearchEngineBar";
+import { IntelligenceNewsCard } from "@/components/IntelligenceNewsCard";
 import { StorySkeletonCard } from "@/components/StorySkeletonCard";
 import { ScriptStudio } from "@/components/ScriptStudio";
 import { ApiKeysModal } from "@/components/ApiKeysModal";
-import { AddPresetModal } from "@/components/AddPresetModal";
-import { MOCK_STORIES, DEFAULT_PRESETS } from "@/data/mockStories";
-import { StoryPitch, ScriptSection, DocumentaryScript, LensPreset, ApiKeysConfig } from "@/types";
-import { getStorySections } from "@/utils/scriptHelper";
+import {
+  ClusteredNewsEvent,
+  StoryPitch,
+  ScriptSection,
+  GeopoliticalNiche,
+  SortMode,
+  ApiKeysConfig,
+} from "@/types";
 import { API_ENDPOINTS } from "@/lib/api";
 import {
-  Layers,
   Sparkles,
   ArrowRight,
-  TrendingUp,
-  FileText,
-  Compass,
   AlertCircle,
-  Key,
   X,
   CheckCircle2,
   Radio,
+  Globe2,
 } from "lucide-react";
 
 export default function Home() {
   // Theme state: dark mode by default
   const [isDarkMode, setIsDarkMode] = useState<boolean>(true);
 
-  // Stories and presets
-  const [stories, setStories] = useState<StoryPitch[]>(MOCK_STORIES);
-  const [selectedStory, setSelectedStory] = useState<StoryPitch | null>(MOCK_STORIES[0]);
-  const [presets, setPresets] = useState<LensPreset[]>(DEFAULT_PRESETS);
-  const [activePresetId, setActivePresetId] = useState<string>("all");
+  // Clustered News Engine State
+  const [clusters, setClusters] = useState<ClusteredNewsEvent[]>([]);
+  const [selectedClusterId, setSelectedClusterId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const [activeNiche, setActiveNiche] = useState<GeopoliticalNiche>("all");
+  const [sortMode, setSortMode] = useState<SortMode>("consensus");
 
-  // Loading and synthesizing state
+  // Script Studio Selected Story
+  const [selectedStory, setSelectedStory] = useState<StoryPitch | null>(null);
+
+  // Loading state (No LLM required to load news!)
   const [isScanning, setIsScanning] = useState(false);
-  const [isSynthesizing, setIsSynthesizing] = useState(false);
-  const [liveHeadlineCount, setLiveHeadlineCount] = useState<number>(45);
+  const [totalHeadlinesCount, setTotalHeadlinesCount] = useState<number>(0);
 
   // Toast notification state
   const [toastMessage, setToastMessage] = useState<{
@@ -50,10 +52,8 @@ export default function Home() {
     onAction?: () => void;
   } | null>(null);
 
-  // Modals & Query tracking
+  // Settings Modal
   const [isApiKeysOpen, setIsApiKeysOpen] = useState(false);
-  const [isAddPresetOpen, setIsAddPresetOpen] = useState(false);
-  const [lastSynthesizedQuery, setLastSynthesizedQuery] = useState<string>("");
 
   // Mobile navigation tab: "radar" | "studio"
   const [mobileActiveTab, setMobileActiveTab] = useState<"radar" | "studio">("radar");
@@ -73,10 +73,160 @@ export default function Home() {
     []
   );
 
-  // Load custom presets, cached stories, and theme on mount
+  // Convert a ClusteredNewsEvent into a complete StoryPitch for ScriptStudio
+  const mapClusterToPitch = useCallback((cluster: ClusteredNewsEvent): StoryPitch => {
+    const nicheLabels: Record<GeopoliticalNiche, string> = {
+      all: "Global Geopolitics",
+      "wars-conflicts": "Wars & Conflicts",
+      "outbreaks-health": "Outbreaks & Bio-Health",
+      "ai-tech": "AI & Tech Geopolitics",
+      "macro-trade": "Global Macro & Trade",
+    };
+
+    const category = nicheLabels[cluster.primaryNiche] || "Global Geopolitics";
+    const impactScore = Math.min(Math.max(cluster.consensusScore * 7, 78), 99);
+
+    const verifiedSources = cluster.articles.map((art) => ({
+      title: art.title,
+      source: art.source,
+      region: art.region,
+      link: art.link,
+      pubDate: art.pubDate,
+      snippet: art.snippet,
+    }));
+
+    return {
+      id: `cluster-pitch-${cluster.id}`,
+      title: cluster.title,
+      subtitle: cluster.summary,
+      category,
+      estimatedRuntime: "13m 30s (~2,000 words)",
+      wordCount: 2000,
+      targetFormat: "YouTube Deep Dive / Investigative Documentary",
+      date: cluster.timeAgo,
+      impactScore,
+      badge: cluster.consensusBadge,
+      consensusBadge: cluster.consensusBadge,
+      regionsReporting: cluster.regions,
+      searchQueries: [
+        cluster.title,
+        ...(cluster.outlets.slice(0, 2)),
+      ],
+      historyShort: "Geopolitical Precedents & Strategic Mirror",
+      verifiedSources,
+      sourceCatalyst: {
+        outlet: cluster.outlets[0] || "Global Wire Matrix",
+        timeAgo: cluster.timeAgo,
+        headline: cluster.title,
+      },
+      nodes: {
+        macroTrigger: {
+          title: "1. The Breaking Event & Developing Timeline",
+          date: cluster.timeAgo,
+          description: cluster.summary,
+          baselineOrigin: `Verified across ${cluster.regions.join(", ")}`,
+          breakingUpdate: cluster.title,
+          outletsReporting: `${cluster.outlets.length} Outlets: ${cluster.outlets.slice(0, 4).join(", ")}`,
+          metricTag: cluster.sensitivityLabel,
+          source: cluster.outlets.slice(0, 3).join(", "),
+        },
+        historicalParallel: {
+          title: "2. Historical Parallel & Strategic Mirror",
+          period: "Historical Mirror (Tavily Precedent)",
+          description:
+            "Strategic historical parallels and chokepoint escalations will be retrieved and analyzed via AI in Script Studio.",
+          similarityScore: `${Math.min(cluster.consensusScore * 8, 95)}% Structural Match`,
+          lesson:
+            "Diplomatic maneuvers, supply bottlenecks, and kinetic leverage follow recurring historical precedents.",
+        },
+        humanImpact: {
+          title: "3. Everyday Human Impact & Global Repercussions",
+          affectedGroup: "Civilians, Supply Chains & Global Households",
+          description:
+            "Downstream consumer consequences, supply disruptions, and ground-level inflationary impacts.",
+          dollarOrPriceMetric: cluster.sensitivityLabel.includes("High")
+            ? "High Kinetic / Macro Impact"
+            : "Strategic Shift",
+          actionableTakeaway:
+            "Monitor ongoing verification from independent international feeds and audit downstream trade exposure.",
+        },
+      },
+      script: {
+        sections: [
+          {
+            act: "Cold Open: The Breaking Shift",
+            cue: `[CapCut Cue: Dramatic map zoom into ${cluster.regions[0] || "conflict zone"}, flashing news headline overlay from ${cluster.outlets[0] || "wire"}]`,
+            narration: `${cluster.title}. Across ${cluster.regions.join(" and ")}, news outlets have confirmed breaking developments that carry profound global implications.`,
+          },
+          {
+            act: "Act I: Verified Facts & Multi-Outlet Evidence",
+            cue: `[CapCut Cue: Montage of news wire reports across ${cluster.outlets.slice(0, 3).join(", ")}]`,
+            narration: `${cluster.summary} Reporting from ${cluster.outlets.length} independent global agencies highlights the escalating stakes.`,
+          },
+        ],
+      },
+    };
+  }, []);
+
+  // Fetch /api/radar with pure algorithmic clustering (NO LLM required!)
+  const fetchRadar = useCallback(
+    async (query?: string) => {
+      setIsScanning(true);
+      try {
+        const qParam = query !== undefined ? query.trim() : searchQuery.trim();
+        const url = qParam
+          ? `${API_ENDPOINTS.radar}?q=${encodeURIComponent(qParam)}`
+          : API_ENDPOINTS.radar;
+
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (data && data.success && Array.isArray(data.clusters)) {
+          const fetchedClusters: ClusteredNewsEvent[] = data.clusters;
+          setClusters(fetchedClusters);
+          setTotalHeadlinesCount(data.headlines?.length || fetchedClusters.length * 2);
+
+          if (fetchedClusters.length > 0) {
+            setSelectedClusterId(fetchedClusters[0].id);
+            // Default selected story for Script Studio
+            setSelectedStory((prev) => prev || mapClusterToPitch(fetchedClusters[0]));
+          }
+
+          if (typeof window !== "undefined") {
+            try {
+              localStorage.setItem(
+                "causalflow_clusters",
+                JSON.stringify(fetchedClusters)
+              );
+            } catch (e) {
+              console.error("Failed to cache clusters", e);
+            }
+          }
+
+          if (qParam) {
+            showToast(
+              `✓ Clustered ${fetchedClusters.length} consensus events for "${qParam}" across global feeds!`,
+              "success"
+            );
+          }
+        }
+      } catch (err: any) {
+        console.error("Failed to fetch radar:", err);
+        showToast(
+          "⚠️ Unable to reach live feeds. Check your network connection.",
+          "warning"
+        );
+      } finally {
+        setIsScanning(false);
+      }
+    },
+    [searchQuery, mapClusterToPitch, showToast]
+  );
+
+  // Initialize on mount: load theme, cached clusters, then fetch live radar
   useEffect(() => {
     if (typeof window !== "undefined") {
-      // 1. Theme initialization
+      // 1. Theme
       const savedTheme = localStorage.getItem("causalflow_theme");
       if (savedTheme === "light") {
         setIsDarkMode(false);
@@ -88,41 +238,25 @@ export default function Home() {
         document.documentElement.classList.remove("light");
       }
 
-      // 2. Custom Presets initialization
-      const savedPresets = localStorage.getItem("causalflow_custom_presets");
-      if (savedPresets) {
+      // 2. Cached Clusters
+      const savedClusters = localStorage.getItem("causalflow_clusters");
+      if (savedClusters) {
         try {
-          const parsed = JSON.parse(savedPresets);
-          setPresets([...DEFAULT_PRESETS, ...parsed]);
-        } catch (e) {
-          console.error("Failed to load presets", e);
-        }
-      }
-
-      // 3. Cached Generated Stories initialization (preserves last scan with deduplication)
-      const savedStories = localStorage.getItem("causalflow_stories");
-      if (savedStories) {
-        try {
-          const parsedStories = JSON.parse(savedStories);
-          if (Array.isArray(parsedStories) && parsedStories.length > 0) {
-            const seen = new Set<string>();
-            const deduped = parsedStories.filter((s: StoryPitch) => {
-              const key = (s.title || s.id || "").toLowerCase().trim();
-              if (seen.has(key)) return false;
-              seen.add(key);
-              return true;
-            });
-            if (deduped.length > 0) {
-              setStories(deduped);
-              setSelectedStory(deduped[0]);
-            }
+          const parsed = JSON.parse(savedClusters);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setClusters(parsed);
+            setSelectedClusterId(parsed[0].id);
+            setSelectedStory(mapClusterToPitch(parsed[0]));
           }
         } catch (e) {
-          console.error("Failed to load saved stories", e);
+          console.error("Failed to parse cached clusters", e);
         }
       }
     }
-  }, []);
+
+    // Automatically load today's breaking global stories immediately on open
+    fetchRadar();
+  }, [fetchRadar, mapClusterToPitch]);
 
   // Theme toggle
   const handleToggleTheme = () => {
@@ -141,328 +275,126 @@ export default function Home() {
     });
   };
 
-  // Add custom preset
-  const handleAddPreset = (newPreset: LensPreset) => {
-    const updated = [...presets, newPreset];
-    setPresets(updated);
-    setActivePresetId(newPreset.id);
-
-    // Save custom presets to localStorage
-    const customOnly = updated.filter((p) => p.isCustom);
-    localStorage.setItem("causalflow_custom_presets", JSON.stringify(customOnly));
+  // Handle Search submit
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+    if (query.trim()) {
+      setSortMode("relevance");
+    }
+    fetchRadar(query);
   };
 
-  // Update story script in state and localStorage
+  // Handle Refresh Today's Top Headlines
+  const handleRefreshToday = () => {
+    setSearchQuery("");
+    setSortMode("consensus");
+    setActiveNiche("all");
+    fetchRadar("");
+  };
+
+  // Filter & Sort clusters based on active niche and sortMode
+  const filteredAndSortedClusters = useMemo(() => {
+    let result = [...clusters];
+
+    // 1. Geopolitical Niche Filter
+    if (activeNiche !== "all") {
+      result = result.filter((c) => c.primaryNiche === activeNiche);
+    }
+
+    // 2. Local search query filter (in case user typed extra terms before searching or during filter)
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      result = result.filter((c) => {
+        const inTitle = c.title.toLowerCase().includes(q);
+        const inSummary = c.summary.toLowerCase().includes(q);
+        const inOutlets = c.outlets.some((o) => o.toLowerCase().includes(q));
+        const inRegions = c.regions.some((r) => r.toLowerCase().includes(q));
+        return inTitle || inSummary || inOutlets || inRegions;
+      });
+    }
+
+    // 3. Sort Mode
+    result.sort((a, b) => {
+      switch (sortMode) {
+        case "consensus":
+          if (b.consensusScore !== a.consensusScore) {
+            return b.consensusScore - a.consensusScore;
+          }
+          return b.recencyScore - a.recencyScore;
+
+        case "latest":
+          return b.recencyScore - a.recencyScore;
+
+        case "sensitivity":
+          if (b.sensitivityScore !== a.sensitivityScore) {
+            return b.sensitivityScore - a.sensitivityScore;
+          }
+          return b.consensusScore - a.consensusScore;
+
+        case "relevance":
+          if (searchQuery.trim()) {
+            const q = searchQuery.toLowerCase();
+            const aMatches =
+              a.title.toLowerCase().includes(q) || a.summary.toLowerCase().includes(q);
+            const bMatches =
+              b.title.toLowerCase().includes(q) || b.summary.toLowerCase().includes(q);
+            if (aMatches && !bMatches) return -1;
+            if (!aMatches && bMatches) return 1;
+          }
+          return b.consensusScore - a.consensusScore;
+
+        default:
+          return b.consensusScore - a.consensusScore;
+      }
+    });
+
+    return result;
+  }, [clusters, activeNiche, searchQuery, sortMode]);
+
+  // Handle "Build Documentary Storyline →"
+  const handleBuildStoryline = (cluster: ClusteredNewsEvent) => {
+    const pitch = mapClusterToPitch(cluster);
+    setSelectedStory(pitch);
+    setSelectedClusterId(cluster.id);
+
+    // Switch view to Script Studio on mobile
+    if (window.innerWidth < 1024) {
+      setMobileActiveTab("studio");
+    }
+
+    showToast(
+      `✓ Loaded "${cluster.title.slice(0, 42)}..." into Script Studio! Click "Generate 5-Act Script" to begin voiceover generation.`,
+      "success"
+    );
+  };
+
+  // Update story script from ScriptStudio edits
   const handleUpdateStoryScript = (
     storyId: string,
     updatedSections: ScriptSection[]
   ) => {
-    setStories((prev) =>
-      prev.map((s) =>
-        s.id === storyId
-          ? {
-              ...s,
-              script: {
-                ...s.script,
-                sections: updatedSections,
-              },
-            }
-          : s
-      )
-    );
     if (selectedStory && selectedStory.id === storyId) {
-      setSelectedStory((prev) =>
-        prev
-          ? {
-              ...prev,
-              script: {
-                ...prev.script,
-                sections: updatedSections,
-              },
-            }
-          : null
-      );
-    }
-  };
-
-  // Reset script in state
-  const handleResetStoryScript = (storyId: string) => {
-    const original = MOCK_STORIES.find((s) => s.id === storyId);
-    if (original) {
-      const defaultSections = getStorySections(original);
-      handleUpdateStoryScript(storyId, defaultSections);
-    }
-  };
-
-  // Core Autonomous Dot-Connector Synthesis Pipeline
-  const runLiveSynthesis = async (
-    targetQuery?: string,
-    targetPresetId?: string
-  ) => {
-    setIsScanning(true);
-    setIsSynthesizing(true);
-    if (targetQuery !== undefined) {
-      setLastSynthesizedQuery(targetQuery);
-    }
-
-    try {
-      // 1. Ingest live headlines from keyless RSS feeds across ALL global regions (Africa, India, Asia, Europe, US)
-      const radarUrl = targetQuery
-        ? `${API_ENDPOINTS.radar}?q=${encodeURIComponent(targetQuery)}`
-        : API_ENDPOINTS.radar;
-
-      const radarRes = await fetch(radarUrl);
-      const radarData = await radarRes.json();
-      const headlines = radarData.headlines || [];
-      if (headlines.length > 0) {
-        setLiveHeadlineCount(headlines.length);
-      }
-
-      // 2. Retrieve user's Universal AI key from localStorage
-      let groqKey = "";
-      let model = "";
-      let provider = "";
-      if (typeof window !== "undefined") {
-        const savedKeys = localStorage.getItem("causalflow_api_keys");
-        if (savedKeys) {
-          try {
-            const parsed = JSON.parse(savedKeys);
-            groqKey = parsed.apiKey || parsed.groqKey || "";
-            model = parsed.model || "";
-            provider = parsed.provider || "";
-          } catch (e) {
-            console.error("Failed to parse api keys", e);
-          }
-        }
-      }
-
-      // 3. If no key is entered, prompt the user with a friendly blue toast
-      if (!groqKey) {
-        setIsScanning(false);
-        setIsSynthesizing(false);
-
-        showToast(
-          "💡 Connect your Universal AI API key (Vyce AI, Gemini, Groq, OpenRouter, or OpenAI) in Settings to run live multi-continental synthesis!",
-          "info",
-          "Open Settings",
-          () => setIsApiKeysOpen(true)
-        );
-        return;
-      }
-
-      // 4. Call /api/synthesize with live global headlines & user lens
-      const synthRes = await fetch(API_ENDPOINTS.synthesize, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          headlines,
-          preset: targetPresetId || activePresetId,
-          customQuery: targetQuery || searchQuery || "",
-          apiKey: groqKey,
-          groqKey,
-          model,
-          provider,
-        }),
+      setSelectedStory({
+        ...selectedStory,
+        script: {
+          ...selectedStory.script,
+          sections: updatedSections,
+        },
       });
+    }
+  };
 
-      const synthData = await synthRes.json();
-
-      if (!synthRes.ok || !synthData.success) {
-        throw new Error(synthData.message || synthData.error || "Failed to synthesize story pitches.");
-      }
-
-      const rawPitches = synthData.pitches || [];
-
-      // 5. Map returned pitches to frontend StoryPitch type
-      const mappedPitches: StoryPitch[] = rawPitches.map((p: any, idx: number) => {
-        const categoryMap: Record<string, string> = {
-          "ai-finance": "AI × Financial Markets",
-          geopolitics: "Geopolitics & Supply Chains",
-          "macro-crisis": "Cost of Living & Raw Materials",
-        };
-
-        const resolvedCategory =
-          categoryMap[p.category] || p.category || "Geopolitics & Supply Chains";
-
-        const verifiedSrcs =
-          p.verifiedSources && p.verifiedSources.length > 0
-            ? p.verifiedSources
-            : headlines.slice(0, 3).map((h: any) => ({
-                title: h.title,
-                source: h.source,
-                region: h.region || "Global",
-                link: h.link,
-                pubDate: h.pubDate,
-              }));
-
-        return {
-          id: p.id || `live-pitch-${Date.now()}-${idx}`,
-          title: p.title || "Cross-Continental Documentary Investigation",
-          subtitle:
-            p.subtitle ||
-            `${p.nodes?.macroTrigger?.description || ""} Connecting to ${p.historyShort || "historical precedents"}.`,
-          category: resolvedCategory,
-          estimatedRuntime: p.runtime || "13m 40s (~2,000 words)",
-          wordCount: 2000,
-          targetFormat: "YouTube Deep Dive / Investigative Documentary",
-          date: "Live Global Consensus",
-          impactScore:
-            parseInt(String(p.badge || "").replace(/[^0-9]/g, "") || "96") || 96,
-          badge: p.badge || "Multi-Continental Consensus",
-          consensusBadge:
-            p.consensusBadge ||
-            "GLOBAL CONSENSUS: Reported across Asia, Africa & US",
-          regionsReporting:
-            p.regionsReporting || [
-              "Africa",
-              "India & South Asia",
-              "US & Global Finance",
-              "Europe & UK",
-            ],
-          searchQueries: p.searchQueries || [],
-          historyShort: p.historyShort || "Historical Precedent",
-          verifiedSources: verifiedSrcs,
-          sourceCatalyst: {
-            outlet: verifiedSrcs[0]?.source || "Global News Matrix",
-            timeAgo: "Live Update",
-            headline: p.nodes?.macroTrigger?.breakingUpdate || p.title,
-          },
-          nodes: {
-            macroTrigger: {
-              title:
-                p.nodes?.macroTrigger?.title ||
-                "1. The Developing Timeline (Past ➔ Today's Update)",
-              date: "Today's Update",
-              description: p.nodes?.macroTrigger?.description || "",
-              baselineOrigin: p.nodes?.macroTrigger?.baselineOrigin || "",
-              breakingUpdate: p.nodes?.macroTrigger?.breakingUpdate || "",
-              outletsReporting: p.nodes?.macroTrigger?.outletsReporting || "",
-              metricTag: p.nodes?.macroTrigger?.metricTag || "+38% Volatility",
-              source: p.nodes?.macroTrigger?.source || "Global Outlets",
-            },
-            historicalParallel: {
-              title:
-                p.nodes?.historicalParallel?.title ||
-                "2. Geopolitical & Historical Mirror",
-              period:
-                p.nodes?.historicalParallel?.period ||
-                p.historyShort ||
-                "Historical Precedent",
-              description: p.nodes?.historicalParallel?.description || "",
-              mechanism: p.nodes?.historicalParallel?.mechanism || "",
-              historicalPrecedent:
-                p.nodes?.historicalParallel?.historicalPrecedent || "",
-              similarityScore:
-                p.nodes?.historicalParallel?.similarityScore ||
-                "91% Structural Match",
-              lesson:
-                p.nodes?.historicalParallel?.lesson ||
-                "Capital cycles repeat across energy, debt, and trade bottlenecks.",
-            },
-            humanImpact: {
-              title:
-                p.nodes?.humanImpact?.title ||
-                "3. Everyday Human Impact (The Average Citizen)",
-              affectedGroup:
-                p.nodes?.humanImpact?.affectedGroup ||
-                "Everyday Consumers & Households",
-              description: p.nodes?.humanImpact?.description || "",
-              groundLevelEffect:
-                p.nodes?.humanImpact?.groundLevelEffect || "",
-              dollarOrPriceMetric:
-                p.nodes?.humanImpact?.dollarOrPriceMetric ||
-                "+$42/mo Average Surcharge",
-              actionableTakeaway:
-                p.nodes?.humanImpact?.actionableTakeaway ||
-                "Audit local utility repricing notices and hedge commodity inflation.",
-            },
-          },
-          script: p.script,
-        };
-      });
-
-      // 6. Update state: REPLACE stories with newly synthesized pitches (eliminates duplicate/mock cards!)
-      setStories(mappedPitches);
-      if (mappedPitches.length > 0) {
-        setSelectedStory(mappedPitches[0]);
-      }
-      localStorage.setItem("causalflow_stories", JSON.stringify(mappedPitches));
-
-      if (synthData.notice) {
-        showToast(synthData.notice, "info");
-      } else {
-        const usedModel =
-          synthData.model ||
-          (model && model !== "auto" && model !== "hybrid"
-            ? model
-            : "gemini-3.1-flash-lite");
-
-        showToast(
-          `✓ Autonomous Dot-Connector clustered live global news into ${mappedPitches.length} pitches via ${usedModel}!`,
-          "success"
-        );
-      }
-    } catch (err: any) {
-      console.error("Live synthesis error:", err);
-      showToast(
-        `Synthesis failed: ${err.message || "Network error"}. Please check your API key in Settings.`,
-        "warning",
-        "API Settings",
-        () => setIsApiKeysOpen(true)
+  // Reset script in ScriptStudio
+  const handleResetStoryScript = (_storyId: string) => {
+    if (selectedStory) {
+      const activeCluster = clusters.find(
+        (c) => `cluster-pitch-${c.id}` === selectedStory.id
       );
-    } finally {
-      setIsScanning(false);
-      setIsSynthesizing(false);
-    }
-  };
-
-  // Handle Connect Dots search submit
-  const handleConnectDots = (query: string) => {
-    if (!query.trim()) return;
-    setSearchQuery(query);
-    runLiveSynthesis(query);
-  };
-
-  // Filter stories based on active preset and search query
-  const filteredStories = stories.filter((story) => {
-    // 1. Preset filter
-    const activePreset = presets.find((p) => p.id === activePresetId);
-    if (activePreset && activePreset.id !== "all") {
-      if (activePreset.queryFilter) {
-        const filterStr = activePreset.queryFilter.toLowerCase();
-        const matchesCategory = story.category?.toLowerCase().includes(filterStr);
-        const matchesContent =
-          story.title?.toLowerCase().includes(filterStr) ||
-          story.nodes?.macroTrigger?.description?.toLowerCase().includes(filterStr) ||
-          story.nodes?.historicalParallel?.description?.toLowerCase().includes(filterStr) ||
-          story.nodes?.humanImpact?.description?.toLowerCase().includes(filterStr);
-        if (!matchesCategory && !matchesContent) return false;
+      if (activeCluster) {
+        setSelectedStory(mapClusterToPitch(activeCluster));
       }
     }
-
-    // 2. Search query filter
-    // Only apply client-side text filtering if the query is different from the last synthesized query
-    // (since newly synthesized pitches are already tailored to the last synthesized query)
-    if (
-      searchQuery.trim() &&
-      searchQuery.toLowerCase().trim() !== lastSynthesizedQuery.toLowerCase().trim()
-    ) {
-      const q = searchQuery.toLowerCase().trim();
-      const matches =
-        story.title?.toLowerCase().includes(q) ||
-        story.subtitle?.toLowerCase().includes(q) ||
-        story.category?.toLowerCase().includes(q) ||
-        story.nodes?.macroTrigger?.title?.toLowerCase().includes(q) ||
-        story.nodes?.macroTrigger?.description?.toLowerCase().includes(q) ||
-        story.nodes?.historicalParallel?.title?.toLowerCase().includes(q) ||
-        story.nodes?.historicalParallel?.description?.toLowerCase().includes(q) ||
-        story.nodes?.humanImpact?.title?.toLowerCase().includes(q) ||
-        story.nodes?.humanImpact?.description?.toLowerCase().includes(q);
-      if (!matches) return false;
-    }
-
-    return true;
-  });
+  };
 
   return (
     <div
@@ -472,7 +404,7 @@ export default function Home() {
           : "bg-[#F8FAFC] text-slate-900 radar-ambient-glow-light"
       }`}
     >
-      {/* Dynamic Toast Banner */}
+      {/* Toast Notification Banner */}
       {toastMessage && (
         <div className="fixed top-20 right-4 sm:right-8 z-50 max-w-md w-[calc(100%-2rem)] p-4 rounded-2xl bg-white dark:bg-[#0E131F] border border-blue-500/50 shadow-2xl shadow-blue-500/20 text-slate-900 dark:text-white text-xs sm:text-sm animate-in fade-in slide-in-from-top-3 flex items-start justify-between gap-3">
           <div className="flex items-start gap-2.5">
@@ -513,34 +445,34 @@ export default function Home() {
         isDarkMode={isDarkMode}
         onToggleTheme={handleToggleTheme}
         onOpenApiKeys={() => setIsApiKeysOpen(true)}
-        onScanNews={() => runLiveSynthesis()}
-        isScanning={isScanning || isSynthesizing}
+        onScanNews={() => fetchRadar()}
+        isScanning={isScanning}
         mobileActiveTab={mobileActiveTab}
         onTabChange={(tab) => setMobileActiveTab(tab)}
-        storyCount={filteredStories.length}
+        storyCount={filteredAndSortedClusters.length}
       />
 
       {/* MAIN CONTAINER */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-7 flex flex-col gap-6">
-        {/* 2. AI CURIOSITY BAR & HORIZONTAL LENS PRESETS */}
+        {/* 2. REAL-TIME SEARCH ENGINE BAR & CONTROL BARS */}
         <section className="w-full">
-          <CuriosityBar
+          <NewsSearchEngineBar
             searchQuery={searchQuery}
-            onSearchChange={(q) => setSearchQuery(q)}
-            activePresetId={activePresetId}
-            onSelectPreset={(id) => {
-              setActivePresetId(id);
-            }}
-            presets={presets}
-            onOpenAddPreset={() => setIsAddPresetOpen(true)}
-            onConnectDots={handleConnectDots}
-            storyMatchCount={filteredStories.length}
+            onSearch={handleSearch}
+            onRefreshToday={handleRefreshToday}
+            isScanning={isScanning}
+            activeNiche={activeNiche}
+            onSelectNiche={(niche) => setActiveNiche(niche)}
+            sortMode={sortMode}
+            onSelectSortMode={(mode) => setSortMode(mode)}
+            totalClustersCount={clusters.length}
+            filteredClustersCount={filteredAndSortedClusters.length}
           />
         </section>
 
-        {/* 3. RESPONSIVE SPLIT VIEW / SEGMENTED TAB VIEW */}
+        {/* 3. SPLIT VIEW: REAL-TIME RADAR (LEFT) vs. SCRIPT STUDIO (RIGHT) */}
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          {/* LEFT COLUMN: Story Radar Feed & 3-Node Causal Cards */}
+          {/* LEFT COLUMN: Real-Time Geopolitical Consensus Radar */}
           <div
             className={`lg:col-span-5 flex flex-col space-y-4 ${
               mobileActiveTab === "radar" ? "block" : "hidden lg:block"
@@ -554,69 +486,73 @@ export default function Home() {
                   <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500"></span>
                 </span>
                 <h2 className="text-sm font-bold uppercase tracking-wider text-slate-900 dark:text-white font-mono">
-                  Autonomous Story Radar
+                  Geopolitical Consensus Radar
                 </h2>
               </div>
 
               <span className="text-xs font-mono text-slate-500 dark:text-slate-400">
-                {isSynthesizing ? "Synthesizing dots..." : `${filteredStories.length} active pitches`}
+                {isScanning
+                  ? "Scraping 20+ feeds..."
+                  : `${filteredAndSortedClusters.length} verified events`}
               </span>
             </div>
 
-            {/* AI Dot-Connector Skeleton Shimmer State */}
-            {isSynthesizing && (
+            {/* Scanning Ingestion Status Banner */}
+            {isScanning && (
               <div className="space-y-4">
                 <div className="p-3.5 rounded-xl bg-blue-50/80 dark:bg-blue-950/40 border border-blue-500/30 flex items-center justify-between text-xs font-mono text-blue-700 dark:text-blue-300">
                   <div className="flex items-center gap-2">
                     <Radio className="w-4 h-4 animate-spin text-blue-500" />
-                    <span>Connecting dots across {liveHeadlineCount} live global headlines...</span>
+                    <span>
+                      Scraping & clustering live feeds across BBC, CNN, Al Jazeera, Reuters, SCMP, Punch NG...
+                    </span>
                   </div>
-                  <span className="animate-pulse font-bold">Llama 3.3 70B</span>
+                  <span className="animate-pulse font-bold text-emerald-500">$0 Token RSS</span>
                 </div>
+                <StorySkeletonCard />
                 <StorySkeletonCard />
                 <StorySkeletonCard />
               </div>
             )}
 
-            {/* List of 3-Node Causal Cards */}
-            {!isSynthesizing && filteredStories.length === 0 ? (
+            {/* Empty State */}
+            {!isScanning && filteredAndSortedClusters.length === 0 && (
               <div className="p-8 text-center rounded-2xl bg-white dark:bg-[#0E131F] border border-slate-200 dark:border-white/10">
                 <AlertCircle className="w-8 h-8 text-slate-400 mx-auto mb-2" />
                 <h4 className="text-sm font-semibold text-slate-900 dark:text-white mb-1">
-                  No stories found for this lens
+                  No verified events match this niche or keyword
                 </h4>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
-                  Try asking in the Curiosity Bar or click &quot;Scan Live News&quot; to discover fresh macro catalysts.
+                  Try searching a different keyword or click &quot;Today&apos;s Top Headlines (Refresh)&quot;.
                 </p>
                 <button
-                  onClick={() => {
-                    setActivePresetId("all");
-                    setSearchQuery("");
-                  }}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold bg-blue-600 text-white"
+                  onClick={handleRefreshToday}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-600/20"
                 >
-                  Reset All Filters
+                  Reset All Filters & Reload Today
                 </button>
               </div>
-            ) : (
-              !isSynthesizing && (
-                <div className="space-y-4">
-                  {filteredStories.map((story) => (
-                    <StoryPitchCard
-                      key={story.id}
-                      story={story}
-                      isSelected={selectedStory?.id === story.id}
-                      onSelect={(st) => {
-                        setSelectedStory(st);
-                        // On mobile, auto-switch to studio view so user immediately sees their script
-                        if (window.innerWidth < 1024) {
-                          setMobileActiveTab("studio");
-                        }
-                      }}
-                    />
-                  ))}
-                </div>
-              )
+            )}
+
+            {/* List of Redesigned IntelligenceNewsCard Components */}
+            {!isScanning && filteredAndSortedClusters.length > 0 && (
+              <div className="space-y-4">
+                {filteredAndSortedClusters.map((cluster) => (
+                  <IntelligenceNewsCard
+                    key={cluster.id}
+                    cluster={cluster}
+                    isSelected={selectedClusterId === cluster.id}
+                    onSelect={(cl) => {
+                      setSelectedClusterId(cl.id);
+                      setSelectedStory(mapClusterToPitch(cl));
+                      if (window.innerWidth < 1024) {
+                        setMobileActiveTab("studio");
+                      }
+                    }}
+                    onBuildStoryline={handleBuildStoryline}
+                  />
+                ))}
+              </div>
             )}
           </div>
 
@@ -644,33 +580,27 @@ export default function Home() {
               CausalFlow Studio
             </span>
             <span>•</span>
-            <span>Autonomous Documentary Intelligence</span>
+            <span>Real-Time Geopolitical Consensus Engine</span>
           </div>
 
           <div className="flex items-center gap-4 font-mono text-[11px]">
             <span className="text-emerald-500 flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-              $0 Stack Compatible (Groq + Tavily)
+              $0 News Ingestion (Pure RSS)
             </span>
             <span>•</span>
-            <span>Local Storage Client Mode</span>
+            <span>Universal AI Compatible</span>
           </div>
         </div>
       </footer>
 
-      {/* MODALS */}
+      {/* SETTINGS MODAL */}
       <ApiKeysModal
         isOpen={isApiKeysOpen}
         onClose={() => setIsApiKeysOpen(false)}
-        onSaveKeys={(keys: ApiKeysConfig) => {
-          showToast("✓ API Key saved locally! Ready for live Groq synthesis.", "success");
+        onSaveKeys={(_keys: ApiKeysConfig) => {
+          showToast("✓ API Key saved locally! Ready for Script Studio generation.", "success");
         }}
-      />
-
-      <AddPresetModal
-        isOpen={isAddPresetOpen}
-        onClose={() => setIsAddPresetOpen(false)}
-        onAddPreset={handleAddPreset}
       />
     </div>
   );
