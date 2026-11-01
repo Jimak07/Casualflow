@@ -388,16 +388,20 @@ export default function Home() {
       }
       localStorage.setItem("causalflow_stories", JSON.stringify(mappedPitches));
 
-      const usedModel =
-        synthData.model ||
-        (model && model !== "auto" && model !== "hybrid"
-          ? model
-          : "gemini-3.1-flash-lite");
+      if (synthData.notice) {
+        showToast(synthData.notice, "info");
+      } else {
+        const usedModel =
+          synthData.model ||
+          (model && model !== "auto" && model !== "hybrid"
+            ? model
+            : "gemini-3.1-flash-lite");
 
-      showToast(
-        `✓ Autonomous Dot-Connector clustered live global news into ${mappedPitches.length} pitches via ${usedModel}!`,
-        "success"
-      );
+        showToast(
+          `✓ Autonomous Dot-Connector clustered live global news into ${mappedPitches.length} pitches via ${usedModel}!`,
+          "success"
+        );
+      }
     } catch (err: any) {
       console.error("Live synthesis error:", err);
       showToast(

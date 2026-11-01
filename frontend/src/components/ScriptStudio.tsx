@@ -243,11 +243,15 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
       );
 
       const resolvedModel = data.model || displayModel;
-      showToast(
-        data.hasTavilyResearch
-          ? `✓ Verified with Tavily Research & drafted full 5-act script via ${resolvedModel}!`
-          : `✓ Drafted 5-act production script via ${resolvedModel}!`
-      );
+      if (data.notice) {
+        showToast(data.notice);
+      } else {
+        showToast(
+          data.hasTavilyResearch
+            ? `✓ Verified with Tavily Research & drafted full 5-act script via ${resolvedModel}!`
+            : `✓ Drafted 5-act production script via ${resolvedModel}!`
+        );
+      }
     } catch (err: any) {
       console.error("Script generation error:", err);
       showToast(`Generation failed: ${err.message || "Network error"}`);

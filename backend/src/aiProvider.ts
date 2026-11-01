@@ -398,9 +398,52 @@ export function cleanAndParseJson<T = any>(text: string): T {
   }
 }
 
+export function isHtmlResponse(text: string, contentType?: string): boolean {
+  const trimmed = text.trim().toLowerCase();
+  return (
+    trimmed.startsWith("<!doctype html") ||
+    trimmed.startsWith("<html") ||
+    trimmed.startsWith("<?xml") ||
+    (contentType ? contentType.toLowerCase().includes("text/html") : false)
+  );
+}
+
+export function extractHtmlErrorSummary(text: string, status?: number): string {
+  const trimmed = text.trim();
+  const titleMatch = trimmed.match(/<title>([\s\S]*?)<\/title>/i);
+  const h1Match = trimmed.match(/<h1>([\s\S]*?)<\/h1>/i);
+  const title = (titleMatch ? titleMatch[1].trim() : "") || (h1Match ? h1Match[1].trim() : "");
+  if (title) {
+    return `Upstream gateway error (${status || 502}): ${title}`;
+  }
+  return `Upstream gateway returned HTML error page (${status || 502} Bad Gateway)`;
+}
+
+export function isGatewayOrDowntimeError(status: number, text: string): boolean {
+  const lower = text.toLowerCase().trim();
+  return (
+    status === 502 ||
+    status === 503 ||
+    status === 504 ||
+    status === 520 ||
+    status === 521 ||
+    status === 522 ||
+    status === 524 ||
+    isHtmlResponse(text) ||
+    lower.includes("502 bad gateway") ||
+    lower.includes("bad gateway") ||
+    lower.includes("gateway timeout") ||
+    lower.includes("cloudflare") ||
+    lower.includes("upstream connect error") ||
+    lower.includes("service temporarily unavailable") ||
+    lower.includes("rate limit")
+  );
+}
+
 function isModelDisabledError(status: number, errorText: string): boolean {
   const lower = errorText.toLowerCase();
   return (
+    isGatewayOrDowntimeError(status, errorText) ||
     lower.includes("model_disabled") ||
     lower.includes("model is temporarily disabled") ||
     lower.includes("model temporarily disabled") ||
@@ -454,7 +497,7 @@ export async function callUniversalAi({
     headers["X-Title"] = "CausalFlow Documentary Intelligence";
   }
 
-  // Helper to attempt calling a single model, with fallback for response_format
+  // Helper to attempt calling a single model, with fallback for response_format & HTML/502 handling
   const attemptCall = async (modelToUse: string): Promise<{ data: any; usedModel: string }> => {
     const buildBody = (withJsonFormat: boolean) => {
       const body: any = {
@@ -472,42 +515,99 @@ export async function callUniversalAi({
       return body;
     };
 
-    // Step 1: Try with response_format: { type: "json_object" }
-    let res = await fetch(config.endpoint, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(buildBody(true)),
-    });
+    let res: Response;
+    try {
+      res = await fetch(config.endpoint, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(buildBody(true)),
+      });
+    } catch (netErr: any) {
+      throw {
+        status: 502,
+        errorText: `Network connection error to ${config.endpoint}: ${netErr.message}`,
+        model: modelToUse,
+        isGatewayError: true,
+      };
+    }
 
-    if (!res.ok) {
-      const errText = await res.text();
-      // If error is about response_format, immediately retry without response_format
-      if (isFormatError(errText)) {
+    const contentType = (res.headers.get("content-type") || "").toLowerCase();
+    const rawText = await res.text();
+    const isHtml = isHtmlResponse(rawText, contentType);
+    const is502Error =
+      res.status === 502 ||
+      res.status === 503 ||
+      res.status === 504 ||
+      res.status === 520 ||
+      res.status === 521 ||
+      res.status === 522 ||
+      res.status === 524;
+
+    // Check if error response or HTML gateway page received
+    if (!res.ok || isHtml || is502Error) {
+      // If error is strictly about response_format (and NOT an HTML/502 gateway error), retry without response_format
+      if (!isHtml && !is502Error && isFormatError(rawText)) {
         console.warn(
           `[${config.providerLabel}] Model ${modelToUse} rejected response_format. Retrying without it...`
         );
-        const retryRes = await fetch(config.endpoint, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(buildBody(false)),
-        });
+        let retryRes: Response;
+        try {
+          retryRes = await fetch(config.endpoint, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(buildBody(false)),
+          });
+        } catch (retryNetErr: any) {
+          throw {
+            status: 502,
+            errorText: `Network error on retry: ${retryNetErr.message}`,
+            model: modelToUse,
+            isGatewayError: true,
+          };
+        }
 
-        if (retryRes.ok) {
-          const json = await retryRes.json();
-          const content = json.choices?.[0]?.message?.content;
-          if (!content) throw new Error("Empty content returned from model.");
+        const retryRaw = await retryRes.text();
+        const retryIsHtml = isHtmlResponse(retryRaw, retryRes.headers.get("content-type") || "");
+
+        if (retryRes.ok && !retryIsHtml) {
+          let parsedJson: any = null;
+          try {
+            parsedJson = JSON.parse(retryRaw);
+          } catch {}
+          const content = parsedJson?.choices?.[0]?.message?.content || retryRaw;
           return { data: cleanAndParseJson(content), usedModel: modelToUse };
         } else {
-          const retryErrText = await retryRes.text();
-          throw { status: retryRes.status, errorText: retryErrText, model: modelToUse };
+          const summary = retryIsHtml
+            ? extractHtmlErrorSummary(retryRaw, retryRes.status)
+            : retryRaw.slice(0, 300);
+          throw {
+            status: retryRes.status || 502,
+            errorText: summary,
+            model: modelToUse,
+            isGatewayError: retryIsHtml || retryRes.status >= 500,
+          };
         }
       }
 
-      throw { status: res.status, errorText: errText, model: modelToUse };
+      const summary = isHtml
+        ? extractHtmlErrorSummary(rawText, res.status)
+        : rawText.slice(0, 300);
+
+      throw {
+        status: res.status || 502,
+        errorText: summary,
+        model: modelToUse,
+        isGatewayError: isHtml || is502Error,
+      };
     }
 
-    const json = await res.json();
-    const content = json.choices?.[0]?.message?.content;
+    // Success response: safely parse JSON
+    let parsedData: any = null;
+    try {
+      parsedData = JSON.parse(rawText);
+    } catch {}
+
+    const content = parsedData?.choices?.[0]?.message?.content || rawText;
     if (!content) throw new Error("Empty content returned from model.");
     return { data: cleanAndParseJson(content), usedModel: modelToUse };
   };
@@ -522,13 +622,16 @@ export async function callUniversalAi({
       `[${config.providerLabel}] Model "${model}" failed (${status}): ${errorText.slice(0, 160)}`
     );
 
-    // Check if this is a model failure that warrants triggering fallback
+    // Check if this is a model or gateway failure that warrants triggering fallback
     const shouldFallback =
+      isGatewayOrDowntimeError(status, errorText) ||
       isModelDisabledError(status, errorText) ||
       status === 400 ||
       status === 404 ||
       status === 500 ||
-      status === 503;
+      status === 502 ||
+      status === 503 ||
+      status === 504;
 
     if (!shouldFallback) {
       throw new Error(`[${config.providerLabel}] Request failed (${status}): ${errorText.slice(0, 300)}`);
@@ -537,19 +640,24 @@ export async function callUniversalAi({
     // Determine fallback models
     let fallbackCandidates: string[] = [];
     if (config.provider === "vyce") {
-      // 1. Fetch live active models from Vyce API if possible
-      const liveVyceModels = await fetchVyceModels(config.apiKey);
-
-      // 2. Ordered priority list from user instructions
+      // 1. Ordered priority list from user instructions
       const userPriority = [
         "gemini-3.1-flash-lite",
         "claude-haiku-4-5",
         "nemotron-ultra-550b",
         "claude-sonnet-4-6",
         "gpt-5.6-luna",
+        "deepseek-v4.1",
+        "beam-1.0",
+        "agnes-3.0-flash",
       ];
 
-      // Combine user priority with any newly discovered live models
+      // Try fetching live active models if gateway is reachable
+      let liveVyceModels: string[] = [];
+      try {
+        liveVyceModels = await fetchVyceModels(config.apiKey);
+      } catch {}
+
       const combined = [...userPriority];
       for (const m of liveVyceModels) {
         if (!combined.includes(m)) {
