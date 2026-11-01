@@ -182,7 +182,15 @@ export type GeopoliticalNiche =
   | "ai-tech"
   | "macro-trade";
 
-export type SortMode = "consensus" | "latest" | "sensitivity" | "relevance";
+export type ImportanceGrade = "S-Tier" | "A-Tier" | "B-Tier";
+
+export type SortMode =
+  | "popularity"
+  | "importance"
+  | "latest"
+  | "consensus"
+  | "sensitivity"
+  | "relevance";
 
 export interface ClusteredNewsArticle {
   title: string;
@@ -203,6 +211,10 @@ export interface ClusteredNewsEvent {
   outlets: string[];
   regions: string[];
   consensusScore: number;
+  popularityScore: number;
+  importanceScore: number;
+  importanceGrade: ImportanceGrade;
+  importanceLabel: string;
   recencyScore: number;
   timeAgo: string;
   sensitivityScore: number;

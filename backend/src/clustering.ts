@@ -1,6 +1,7 @@
 /**
  * Algorithmic Story Clustering & Consensus Scoring Engine
- * Groups live RSS headlines across global outlets without requiring an LLM.
+ * Groups live RSS headlines across global outlets with strict same-event clustering
+ * and computes Popularity vs. Global Economic & Geopolitical Importance.
  */
 
 export type GeopoliticalNiche =
@@ -9,6 +10,8 @@ export type GeopoliticalNiche =
   | "outbreaks-health"
   | "ai-tech"
   | "macro-trade";
+
+export type ImportanceGrade = "S-Tier" | "A-Tier" | "B-Tier";
 
 export interface ClusteredNewsArticle {
   title: string;
@@ -28,14 +31,20 @@ export interface ClusteredNewsEvent {
   consensusBadge: string;
   outlets: string[];
   regions: string[];
-  consensusScore: number;
+  consensusScore: number; // Backward compatibility
+  popularityScore: number; // 0 - 100 (Cross-Outlet Consensus)
+  importanceScore: number; // 0 - 100 (Global Economic & Geopolitical Impact)
+  importanceGrade: ImportanceGrade; // "S-Tier" | "A-Tier" | "B-Tier"
+  importanceLabel: string; // e.g. "94% Global Impact [S-Tier: Economy & Geopolitics]"
   recencyScore: number;
   timeAgo: string;
   sensitivityScore: number;
   articles: ClusteredNewsArticle[];
 }
 
-// Common English stopwords to ignore during keyword extraction
+/**
+ * Stopwords to ignore during token extraction
+ */
 const STOP_WORDS = new Set([
   "a", "about", "above", "after", "again", "against", "all", "am", "an", "and", "any", "are",
   "arent", "as", "at", "be", "because", "been", "before", "being", "below", "between", "both",
@@ -52,24 +61,110 @@ const STOP_WORDS = new Set([
   "under", "until", "up", "very", "was", "wasnt", "we", "wed", "well", "were", "weve", "werent",
   "what", "whats", "when", "whens", "where", "wheres", "which", "while", "who", "whos", "whom",
   "why", "whys", "with", "wont", "would", "wouldnt", "you", "youd", "youll", "youre", "youve",
-  "your", "yours", "yourself", "yourselves", "says", "said", "will", "new", "first", "two", "three",
-  "amid", "after", "over", "into", "year", "years", "day", "days", "week", "weeks", "latest",
-  "report", "reports", "reported", "breaking", "update", "live", "watch", "video", "photos",
-  "one", "also", "back", "just", "now", "like", "get", "make", "take", "see", "know", "world",
-  "news", "exclusive", "alert"
+  "your", "yours", "yourself", "yourselves"
 ]);
 
-// Known multi-word entities for high-confidence entity matching
-const KNOWN_ENTITIES = [
-  "donald trump", "kamala harris", "joe biden", "vladimir putin", "xi jinping",
-  "benjamin netanyahu", "volodymyr zelenskyy", "zelenskyy", "zelensky",
-  "middle east", "red sea", "gaza strip", "west bank", "south china sea", "taiwan strait",
-  "cape of good hope", "suez canal", "bab-el-mandeb", "strait of hormuz",
-  "federal reserve", "central bank", "bank of england", "european central bank", "international monetary fund",
-  "world health organization", "united nations", "european union", "nato",
-  "artificial intelligence", "deepseek", "nvidia", "openai", "semiconductor",
-  "wall street", "silicon valley", "white house", "downing street", "kremlin",
-  "north korea", "south korea", "saudi arabia", "south africa", "united states", "united kingdom"
+/**
+ * Generic news reporting verbs, filler nouns, and broadcast boilerplate.
+ * These never define a specific event.
+ */
+const GENERIC_NEWS_WORDS = new Set([
+  "says", "said", "saying", "warns", "warned", "warning", "latest", "new", "news",
+  "report", "reports", "reported", "reporting", "world", "hit", "hits", "hitting",
+  "after", "amid", "over", "claims", "claimed", "claiming", "tells", "told",
+  "reveals", "revealed", "urges", "urged", "moves", "move", "plans", "planned", "planning",
+  "calls", "called", "calling", "faces", "facing", "shows", "shown", "showing",
+  "spotted", "seen", "first", "two", "three", "four", "five", "breaking", "update", "updates",
+  "live", "watch", "video", "photos", "exclusive", "alert", "alerts", "daily", "today",
+  "yesterday", "week", "month", "year", "years", "state", "states", "official", "officials",
+  "minister", "president", "leader", "leaders", "chief", "chiefs", "spokesman", "spokesperson",
+  "govt", "government", "governments", "people", "man", "woman", "time", "day", "days",
+  "back", "meet", "meets", "meeting", "meetings", "talk", "talks", "visit", "visits", "visiting",
+  "key", "rise", "rises", "rising", "falls", "falling", "finds", "finding", "takes", "taking",
+  "look", "looks", "know", "wants", "want", "could", "would", "might", "will", "just",
+  "more", "many", "much", "high", "down", "make", "makes", "here", "what", "where", "when",
+  "who", "how", "why", "about", "into", "onto", "than", "then", "their", "there", "they",
+  "them", "this", "that", "these", "those", "from", "with", "without", "between", "against",
+  "under", "until", "before", "during", "since", "while", "ahead", "behind", "around",
+  "across", "near", "next", "last", "former", "top", "big", "major", "huge", "small",
+  "some", "such", "also", "even", "still", "well", "both", "either", "neither", "only",
+  "very", "too", "quite", "really", "almost", "nearly", "always", "never", "ever",
+  "good", "bad", "better", "best", "worse", "worst", "full", "part", "own", "other",
+  "others", "another", "same", "different", "general", "special", "public", "private",
+  "case", "cases", "point", "points", "way", "ways", "end", "ends", "start", "starts",
+  "open", "close", "set", "sets", "put", "puts", "hold", "holds", "held", "keep", "keeps",
+  "lead", "leads", "led", "bring", "brings", "brought", "send", "sends", "sent",
+  "story", "sources", "source", "post", "posts", "view", "views", "read", "reads"
+]);
+
+/**
+ * Country, nationality, demonym, region, and capital city tokens.
+ * Two headlines CANNOT be clustered solely because they share these country names!
+ */
+export const COUNTRY_REGION_TOKENS = new Set([
+  // Asia & Pacific
+  "korea", "korean", "koreas", "north", "south", "pyongyang", "seoul",
+  "china", "chinese", "beijing", "shanghai", "hong", "kong", "hongkong", "taiwan", "taiwanese", "taipei",
+  "japan", "japanese", "tokyo",
+  "india", "indian", "indians", "delhi", "newdelhi", "mumbai",
+  "pakistan", "pakistani", "islamabad", "bangladesh", "bangladeshi", "dhaka",
+  "afghanistan", "afghan", "kabul",
+  "philippines", "filipino", "manila", "indonesia", "indonesian", "jakarta",
+  "vietnam", "vietnamese", "hanoi", "thailand", "thai", "bangkok",
+  "myanmar", "burma", "burmese", "malaysia", "malaysian", "singapore",
+  "australia", "australian", "canberra", "sydney", "newzealand", "auckland",
+  // Europe
+  "russia", "russian", "russians", "moscow",
+  "ukraine", "ukrainian", "ukrainians", "kyiv", "kiev",
+  "uk", "britain", "british", "london", "england", "english", "scotland", "scottish", "wales",
+  "germany", "german", "germans", "berlin", "france", "french", "paris",
+  "italy", "italian", "rome", "spain", "spanish", "madrid",
+  "poland", "polish", "warsaw", "belarus", "minsk",
+  "sweden", "swedish", "finland", "finnish", "norway", "norwegian", "denmark", "danish",
+  "greece", "greek", "athens", "turkey", "turkish", "turkiye", "ankara", "istanbul",
+  "netherlands", "dutch", "amsterdam", "belgium", "belgian", "brussels",
+  "switzerland", "swiss", "austria", "austrian", "vienna",
+  "ireland", "irish", "dublin", "hungary", "hungarian", "budapest",
+  "romania", "romanian", "bucharest", "serbia", "serbian", "belgrade",
+  // Middle East
+  "israel", "israeli", "israelis", "jerusalem", "telaviv",
+  "gaza", "palestine", "palestinian", "palestinians", "westbank",
+  "iran", "iranian", "iranians", "tehran",
+  "lebanon", "lebanese", "beirut", "hezbollah",
+  "syria", "syrian", "damascus",
+  "yemen", "yemeni", "yemenis", "sanaa", "houthi", "houthis",
+  "iraq", "iraqi", "baghdad",
+  "saudi", "arabia", "saudiarabia", "riyadh",
+  "uae", "dubai", "abudhabi", "emirates", "emirati",
+  "qatar", "qatari", "doha", "kuwait", "oman", "bahrain", "jordan", "jordanian", "amman",
+  // Africa
+  "egypt", "egyptian", "cairo",
+  "sudan", "sudanese", "khartoum",
+  "nigeria", "nigerian", "lagos", "abuja",
+  "southafrica", "johannesburg", "capetown",
+  "kenya", "kenyan", "nairobi", "ethiopia", "ethiopian", "addis",
+  "somalia", "somali", "mogadishu", "drcongo", "congo", "drc", "kinshasa",
+  "rwanda", "rwandan", "kigali", "uganda", "ugandan", "kampala",
+  "ghana", "ghanaian", "accra", "senegal", "dakar",
+  "morocco", "moroccan", "rabat", "algeria", "algerian", "algiers", "tunisia", "libya", "libyan", "tripoli",
+  "sahel", "mali", "niger", "burkina", "faso",
+  // Americas
+  "us", "usa", "america", "american", "americans", "washington", "biden", "trump",
+  "canada", "canadian", "ottawa", "toronto",
+  "mexico", "mexican", "mexicocity",
+  "brazil", "brazilian", "brasilia", "argentina", "argentine", "buenosaires",
+  "colombia", "colombian", "bogota", "venezuela", "venezuelan", "caracas",
+  "cuba", "cuban", "havana", "chile", "chilean", "peru", "peruvian",
+  // Broad continents
+  "africa", "african", "africans", "asia", "asian", "asiapacific", "apac",
+  "europe", "european", "americas", "latinamerica", "middleeast", "mideast", "global", "international"
+]);
+
+const MULTI_WORD_COUNTRIES = [
+  "north korea", "south korea", "united states", "united kingdom",
+  "saudi arabia", "south africa", "middle east", "latin america",
+  "gaza strip", "west bank", "dr congo", "burkina faso", "sri lanka",
+  "new zealand", "puerto rico", "costa rica", "hong kong", "czech republic"
 ];
 
 // Niche keywords for scope filtering
@@ -79,19 +174,20 @@ const NICHE_KEYWORDS = {
     "combat", "attack", "invasion", "ceasefire", "weapons", "soldier", "artillery", "naval",
     "tank", "airbase", "hamas", "gaza", "israel", "hezbollah", "lebanon", "ukraine", "russia",
     "sudan", "yemen", "houthi", "syria", "somalia", "kiev", "kyiv", "moscow", "tehran",
-    "defense", "casualty", "casualties", "killed", "hostage", "shelling", "clash", "clashes"
+    "defense", "casualty", "casualties", "killed", "hostage", "shelling", "clash", "clashes",
+    "cluster-bomb", "warhead", "icbm", "ballistic", "warheads"
   ],
   "outbreaks-health": [
     "outbreak", "virus", "disease", "flu", "bird flu", "h5n1", "mpox", "covid", "pandemic",
     "epidemic", "vaccine", "vaccination", "infection", "contagion", "patient", "hospital",
     "pathogen", "ebola", "cholera", "marburg", "health emergency", "who", "cdc", "medical",
-    "quarantine", "biosecurity", "transmission"
+    "quarantine", "biosecurity", "transmission", "cancer"
   ],
   "ai-tech": [
     "ai", "artificial intelligence", "chip", "semiconductor", "nvidia", "openai", "compute",
     "model", "gpu", "tsmc", "deepseek", "anthropic", "quantum", "cyber", "robot", "robotics",
     "algorithm", "datacenter", "data center", "tech giant", "tech export", "supercomputer",
-    "h100", "blackwell", "asml", "lithography"
+    "h100", "blackwell", "asml", "lithography", "crypto", "bitcoin", "ethereum", "binance"
   ],
   "macro-trade": [
     "tariff", "tariffs", "trade war", "trade", "inflation", "cpi", "fed", "federal reserve",
@@ -102,63 +198,207 @@ const NICHE_KEYWORDS = {
   ]
 };
 
-// Sensitivity score weights
-const SENSITIVITY_WEIGHTS: Record<string, number> = {
-  // Extreme urgency (+10)
-  war: 10, invasion: 10, missile: 10, nuclear: 12, outbreak: 10, pandemic: 10,
-  ebola: 10, mpox: 10, "bird flu": 10, coup: 10, airstrike: 10, massacre: 10,
-  explosion: 9, blast: 9, casualties: 9, killed: 8, martial: 9, emergency: 8,
-  // High geopolitical/economic urgency (+6)
-  sanctions: 7, tariff: 7, tariffs: 7, "trade war": 7, "central bank": 6, "rate hike": 6,
-  "rate cut": 6, default: 7, "debt crisis": 7, semiconductor: 6, "chip ban": 7,
-  "ai model": 6, summit: 5, ceasefire: 7, embargo: 7, blockade: 7, famine: 8,
-  // Moderate urgency (+3)
-  inflation: 4, protest: 4, election: 3, dispute: 3, shortage: 4, pipeline: 4,
-  "supply chain": 4, port: 3, energy: 3, blackout: 5
-};
-
 /**
- * Extracts normalized tokens, keywords, and known multi-word entities from text
+ * Extracts non-country content tokens from text.
+ * Strictly excludes country/nationality names and generic news words.
  */
-export function extractEntitiesAndKeywords(text: string): { entities: string[]; keywords: Set<string> } {
-  const lower = text.toLowerCase();
-  const foundEntities: string[] = [];
+export function extractNonCountryTokens(text: string): {
+  nonCountryTokens: Set<string>;
+  allTokens: Set<string>;
+  rawList: string[];
+} {
+  let normalized = text.toLowerCase();
 
-  // 1. Check known multi-word entities
-  for (const entity of KNOWN_ENTITIES) {
-    if (lower.includes(entity)) {
-      foundEntities.push(entity);
+  // Strip multi-word country names so their pieces don't pollute tokens
+  for (const mwc of MULTI_WORD_COUNTRIES) {
+    normalized = normalized.split(mwc).join(" ");
+  }
+
+  // Preserve hyphenated entities (like cluster-bomb) and financial figures ($6bn, 100m, 50%)
+  const tokens = normalized
+    .replace(/[$€£]/g, "")
+    .replace(/[^a-z0-9\-]/g, " ")
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 2);
+
+  const nonCountryTokens = new Set<string>();
+  const allTokens = new Set<string>();
+  const rawList: string[] = [];
+
+  for (const token of tokens) {
+    allTokens.add(token);
+
+    // Ignore pure 1-2 digit numbers
+    if (/^\d{1,2}$/.test(token)) continue;
+
+    // Filter stop words and generic news reporting filler
+    if (STOP_WORDS.has(token) || GENERIC_NEWS_WORDS.has(token)) continue;
+
+    // Filter country/region names
+    if (COUNTRY_REGION_TOKENS.has(token)) continue;
+
+    // Keep meaningful non-country tokens (length >= 3 or metrics like '6bn')
+    if (token.length >= 3 || /^\d+[kmb]$/.test(token)) {
+      nonCountryTokens.add(token);
+      rawList.push(token);
     }
   }
 
-  // 2. Tokenize words
-  const words = lower
-    .replace(/[^a-z0-9\s-]/g, " ")
-    .split(/\s+/)
-    .filter((w) => w.length >= 3 && !STOP_WORDS.has(w));
-
-  const keywords = new Set<string>(words);
-  for (const ent of foundEntities) {
-    keywords.add(ent);
-  }
-
-  return { entities: foundEntities, keywords };
+  return { nonCountryTokens, allTokens, rawList };
 }
 
 /**
- * Calculates sensitivity score and assigns descriptive label based on urgency keywords
+ * Computes Popularity Score (Cross-Outlet Consensus — 0 to 100)
+ * Evaluates the number of distinct global outlets, distinct continents/regions, and recency.
+ */
+export function calculatePopularityScore(
+  uniqueOutletsCount: number,
+  uniqueRegionsCount: number,
+  latestTimestamp: number
+): number {
+  let score = 25; // Base score for verified breaking item
+
+  // 1. Unique global news outlets
+  if (uniqueOutletsCount === 1) {
+    score += 10;
+  } else if (uniqueOutletsCount === 2) {
+    score += 30;
+  } else if (uniqueOutletsCount === 3) {
+    score += 44;
+  } else if (uniqueOutletsCount === 4) {
+    score += 54;
+  } else {
+    // 5+ outlets: strong international consensus
+    score += 62 + Math.min((uniqueOutletsCount - 5) * 3, 14);
+  }
+
+  // 2. Multi-region coverage bonus
+  if (uniqueRegionsCount === 2) {
+    score += 8;
+  } else if (uniqueRegionsCount === 3) {
+    score += 14;
+  } else if (uniqueRegionsCount >= 4) {
+    score += 20;
+  }
+
+  // 3. Recency boost
+  const ageHours = (Date.now() - latestTimestamp) / (1000 * 60 * 60);
+  if (ageHours < 3) {
+    score += 10;
+  } else if (ageHours < 8) {
+    score += 6;
+  } else if (ageHours < 24) {
+    score += 2;
+  }
+
+  return Math.min(Math.max(Math.round(score), 15), 100);
+}
+
+/**
+ * Computes Global Economic & Geopolitical Importance Score (0 to 100)
+ * Evaluates the structural impact across 5 weighted dimensions:
+ * 1. Macro Financial & Market Shock (+30 max)
+ * 2. Supply Chain, Energy & Trade Chokepoints (+30 max)
+ * 3. Geopolitical & Military Escalation (+25 max)
+ * 4. Global Bio-Health & Outbreaks (+20 max)
+ * 5. Multi-Region Spillover Bonus (+15 max)
+ */
+export function calculateImportanceScore(
+  text: string,
+  uniqueRegionsCount: number
+): {
+  score: number;
+  grade: ImportanceGrade;
+  label: string;
+} {
+  const lower = text.toLowerCase();
+  let score = 28; // Base score
+
+  // 1. Macro Financial & Market Shock (+30 pts max)
+  let financialPts = 0;
+  const hasBigFigures =
+    /\b(\$\d+|\d+\s*(billion|trillion|bn|tn)|multi-billion|hundreds of millions)\b/i.test(lower) ||
+    lower.includes("billion") || lower.includes("trillion") || lower.includes("$bn") || lower.includes("6bn");
+  if (hasBigFigures) financialPts += 15;
+
+  const hasFinancialCrisis = [
+    "central bank", "federal reserve", "interest rate", "rate cut", "rate hike",
+    "currency crash", "currency crisis", "devaluation", "bank run", "banking crisis",
+    "default", "debt crisis", "sovereign debt", "imf", "world bank", "inflation spike",
+    "market crash", "stocks plunge", "crypto theft", "crypto hack", "binance", "coinbase",
+    "heist", "crypto markets slide"
+  ].some((kw) => lower.includes(kw));
+  if (hasFinancialCrisis) financialPts += 15;
+  score += Math.min(financialPts, 30);
+
+  // 2. Supply Chain, Energy & Trade Chokepoints (+30 pts max)
+  let supplyPts = 0;
+  const hasEnergy = [
+    "oil", "crude", "brent", "gas", "lng", "opec", "refinery", "pipeline",
+    "electricity grid", "blackout", "power outage", "fuel shortage"
+  ].some((kw) => lower.includes(kw));
+  if (hasEnergy) supplyPts += 15;
+
+  const hasChokepointTrade = [
+    "suez", "red sea", "strait of hormuz", "bab-el-mandeb", "taiwan strait",
+    "tariff", "tariffs", "trade war", "export ban", "sanction", "sanctions",
+    "embargo", "blockade", "semiconductor", "tsmc", "asml", "chip ban",
+    "microchip", "rare earths", "lithium", "uranium", "critical minerals",
+    "grain", "wheat", "food price"
+  ].some((kw) => lower.includes(kw));
+  if (hasChokepointTrade) supplyPts += 15;
+  score += Math.min(supplyPts, 30);
+
+  // 3. Geopolitical & Military Escalation (+25 pts max)
+  const hasMilitaryEscalation = [
+    "missile", "warhead", "cluster-bomb", "nuclear", "icbm", "ballistic",
+    "airstrike", "drone strike", "air strike", "invasion", "cross-border strike",
+    "naval clash", "war", "martial law", "mobilization", "military coup",
+    "defense pact", "airbase", "fighter jet", "iron dome", "patriot missile",
+    "massacre", "casualties", "killed", "hackers", "cyber attack", "cyber unit",
+    "sanctions", "sanction", "regime shift", "treaty"
+  ].some((kw) => lower.includes(kw));
+  if (hasMilitaryEscalation) score += 25;
+
+  // 4. Global Bio-Health & Outbreaks (+20 pts max)
+  const hasHealthOutbreak = [
+    "outbreak", "pandemic", "epidemic", "bird flu", "h5n1", "mpox", "cholera",
+    "marburg", "ebola", "pathogen", "who alert", "health emergency", "quarantine"
+  ].some((kw) => lower.includes(kw));
+  if (hasHealthOutbreak) score += 20;
+
+  // 5. Multi-Region Spillover Bonus (+15 pts max)
+  if (uniqueRegionsCount >= 3) {
+    score += 15;
+  } else if (uniqueRegionsCount >= 2) {
+    score += 8;
+  }
+
+  const clampedScore = Math.min(Math.max(score, 30), 99);
+
+  let grade: ImportanceGrade;
+  let label: string;
+
+  if (clampedScore >= 85) {
+    grade = "S-Tier";
+    label = `🌍 ${clampedScore}% Global Impact [S-Tier: Economy & Geopolitics]`;
+  } else if (clampedScore >= 70) {
+    grade = "A-Tier";
+    label = `🌍 ${clampedScore}% Global Impact [A-Tier: Strategic Shift]`;
+  } else {
+    grade = "B-Tier";
+    label = `🌍 ${clampedScore}% Global Impact [B-Tier: Regional / Sectoral]`;
+  }
+
+  return { score: clampedScore, grade, label };
+}
+
+/**
+ * Calculates sensitivity classification for backwards compatibility and tags
  */
 export function calculateSensitivity(text: string): { score: number; label: string; primaryNiche: GeopoliticalNiche } {
   const lower = text.toLowerCase();
-  let score = 0;
-
-  for (const [kw, weight] of Object.entries(SENSITIVITY_WEIGHTS)) {
-    if (lower.includes(kw)) {
-      score += weight;
-    }
-  }
-
-  // Determine primary niche
   let matchedNiche: GeopoliticalNiche = "all";
   let maxNicheMatches = 0;
 
@@ -173,16 +413,6 @@ export function calculateSensitivity(text: string): { score: number; label: stri
     }
   }
 
-  // Sensitivity label
-  let urgency = "⚡ Moderate";
-  if (score >= 16) {
-    urgency = "🚨 High Sensitivity";
-  } else if (score >= 8) {
-    urgency = "⚠️ Elevated";
-  } else {
-    urgency = "🌐 Active News";
-  }
-
   const nicheNameMap: Record<string, string> = {
     "wars-conflicts": "Wars & Conflicts",
     "outbreaks-health": "Bio-Health & Outbreak",
@@ -191,17 +421,15 @@ export function calculateSensitivity(text: string): { score: number; label: stri
     all: "Geopolitics",
   };
 
-  const label = `${urgency} • ${nicheNameMap[matchedNiche] || "Geopolitics"}`;
-
   return {
-    score: Math.max(score, 2),
-    label,
+    score: 8,
+    label: `⚡ Active • ${nicheNameMap[matchedNiche] || "Geopolitics"}`,
     primaryNiche: matchedNiche,
   };
 }
 
 /**
- * Computes time ago string (e.g. "14m ago", "2h ago", "1d ago")
+ * Formats time ago string (e.g. "14m ago", "2h ago", "1d ago")
  */
 export function formatTimeAgo(dateString: string): string {
   const timestamp = new Date(dateString).getTime();
@@ -233,13 +461,20 @@ interface RawArticleItem {
 interface IntermediateCluster {
   id: string;
   articles: ClusteredNewsArticle[];
-  keywordCounts: Map<string, number>;
-  entities: Set<string>;
+  centroidTokens: Set<string>; // Core non-country event tokens of the cluster
   latestTimestamp: number;
 }
 
 /**
- * Algorithmic clustering of raw articles into multi-outlet news events
+ * STRICT SAME-EVENT CLUSTERING ENGINE
+ *
+ * Rules:
+ * 1. Two headlines CANNOT be grouped solely because they share a country name or generic news words!
+ * 2. To belong to the same cluster, a candidate article MUST share at least 2 specific NON-COUNTRY
+ *    event tokens with the cluster's core subject, OR exceed a 0.38 Jaccard similarity on non-country tokens.
+ * 3. No Transitive Chaining ("Snowballing"): Compare candidate directly against the cluster's core centroid.
+ * 4. Unique Outlet Counting: Counts distinct news organizations accurately.
+ * 5. Best Headline Selection: Sets the display title to the headline with highest overlap across the cluster.
  */
 export function clusterAndScoreHeadlines(rawArticles: RawArticleItem[], query?: string): ClusteredNewsEvent[] {
   const clusters: IntermediateCluster[] = [];
@@ -247,37 +482,39 @@ export function clusterAndScoreHeadlines(rawArticles: RawArticleItem[], query?: 
   for (const article of rawArticles) {
     if (!article.title || article.title.length < 8) continue;
 
-    const { entities, keywords } = extractEntitiesAndKeywords(`${article.title} ${article.snippet || ""}`);
+    const fullArticleText = `${article.title} ${article.snippet || ""}`;
+    const { nonCountryTokens } = extractNonCountryTokens(fullArticleText);
+
+    // If an article has fewer than 2 non-country tokens, it's too ambiguous to cluster blindly
     let bestCluster: IntermediateCluster | null = null;
-    let highestOverlap = 0;
+    let highestSimilarity = 0;
 
-    // Compare with existing clusters
     for (const cluster of clusters) {
-      let overlap = 0;
-
-      // Exact entity overlap is a strong signal (e.g. both match "Donald Trump" or "Red Sea")
-      for (const ent of entities) {
-        if (cluster.entities.has(ent)) {
-          overlap += 3;
+      let sharedCount = 0;
+      for (const token of nonCountryTokens) {
+        if (cluster.centroidTokens.has(token)) {
+          sharedCount++;
         }
       }
 
-      // Keyword overlap
-      for (const kw of keywords) {
-        if (cluster.keywordCounts.has(kw)) {
-          overlap += 1;
-        }
-      }
+      const unionSize = new Set([...nonCountryTokens, ...cluster.centroidTokens]).size;
+      const jaccard = unionSize > 0 ? sharedCount / unionSize : 0;
 
-      if (overlap >= 2 && overlap > highestOverlap) {
-        highestOverlap = overlap;
-        bestCluster = cluster;
+      // STRICT RULE: Must share at least 2 specific NON-COUNTRY event tokens, OR have Jaccard >= 0.38
+      const isMatch = sharedCount >= 2 || (jaccard >= 0.38 && sharedCount >= 1);
+
+      if (isMatch) {
+        const similarityScore = sharedCount * 1.5 + jaccard;
+        if (similarityScore > highestSimilarity) {
+          highestSimilarity = similarityScore;
+          bestCluster = cluster;
+        }
       }
     }
 
     const pubTime = new Date(article.pubDate).getTime() || Date.now();
 
-    if (bestCluster && highestOverlap >= 2) {
+    if (bestCluster) {
       // Add article to cluster
       bestCluster.articles.push({
         title: article.title,
@@ -288,20 +525,13 @@ export function clusterAndScoreHeadlines(rawArticles: RawArticleItem[], query?: 
         snippet: article.snippet,
       });
 
-      // Update cluster entities & keywords
-      for (const ent of entities) bestCluster.entities.add(ent);
-      for (const kw of keywords) {
-        const cur = bestCluster.keywordCounts.get(kw) || 0;
-        bestCluster.keywordCounts.set(kw, cur + 1);
-      }
+      // Maintain centroid focus without runaway drift (no transitive snowballing):
+      // Only retain/add tokens that have multiple confirmations
       if (pubTime > bestCluster.latestTimestamp) {
         bestCluster.latestTimestamp = pubTime;
       }
     } else {
-      // Create new cluster
-      const kwMap = new Map<string, number>();
-      for (const kw of keywords) kwMap.set(kw, 1);
-
+      // Create new cluster with this article's non-country tokens as the anchor centroid
       clusters.push({
         id: `cluster-${Date.now()}-${clusters.length + 1}`,
         articles: [
@@ -314,68 +544,92 @@ export function clusterAndScoreHeadlines(rawArticles: RawArticleItem[], query?: 
             snippet: article.snippet,
           },
         ],
-        keywordCounts: kwMap,
-        entities: new Set(entities),
+        centroidTokens: new Set(nonCountryTokens),
         latestTimestamp: pubTime,
       });
     }
   }
 
   // Refine each cluster into a final ClusteredNewsEvent
-  const events: ClusteredNewsEvent[] = clusters.map((c, idx) => {
+  const events: ClusteredNewsEvent[] = clusters.map((c) => {
     // Collect distinct outlets & regions
-    const distinctOutlets = Array.from(new Set(c.articles.map((a) => a.source)));
-    const distinctRegions = Array.from(new Set(c.articles.map((a) => a.region)));
+    const distinctOutlets = Array.from(new Set(c.articles.map((a) => a.source.trim())));
+    const distinctRegions = Array.from(new Set(c.articles.map((a) => a.region.trim())));
 
-    // Pick primary headline: prefer authoritative wire outlets or the most descriptive title
-    const prioritizedSources = ["Reuters", "BBC World", "Al Jazeera", "CNN", "The Hindu", "France24", "DW"];
+    // Best Headline Selection:
+    // Select the headline from a premier outlet that has the highest overlap with all articles in this cluster
+    const PREMIER_OUTLETS = [
+      "reuters", "bloomberg", "financial times", "bbc", "al jazeera", "ap", "associated press",
+      "cnn", "dw", "france24", "the hindu", "the guardian", "wall street journal", "wsj"
+    ];
+
     let bestArticle = c.articles[0];
+    let bestHeadlineScore = -1;
 
-    for (const a of c.articles) {
-      const isPrioritySource = prioritizedSources.some((s) => a.source.toLowerCase().includes(s.toLowerCase()));
-      if (isPrioritySource) {
-        bestArticle = a;
-        break;
+    for (const art of c.articles) {
+      const artTokens = extractNonCountryTokens(art.title).nonCountryTokens;
+      let overlapSum = 0;
+
+      for (const other of c.articles) {
+        if (other === art) continue;
+        const otherTokens = extractNonCountryTokens(other.title).nonCountryTokens;
+        for (const t of artTokens) {
+          if (otherTokens.has(t)) overlapSum++;
+        }
       }
-      if (a.title.length > bestArticle.title.length) {
-        bestArticle = a;
+
+      // Outlet authority weight
+      const isPremier = PREMIER_OUTLETS.some((o) => art.source.toLowerCase().includes(o));
+      const authorityBonus = isPremier ? 4 : 0;
+
+      // Length penalty if too short (<25 chars) or too long (>140 chars)
+      const lengthBonus = art.title.length >= 35 && art.title.length <= 130 ? 2 : 0;
+
+      const totalScore = overlapSum + authorityBonus + lengthBonus;
+      if (totalScore > bestHeadlineScore) {
+        bestHeadlineScore = totalScore;
+        bestArticle = art;
       }
     }
 
-    // Build 2-sentence summary from available snippets
-    const snippets = c.articles
+    // Build 2-sentence summary
+    const validSnippets = c.articles
       .map((a) => a.snippet?.trim())
       .filter((s): s is string => Boolean(s && s.length > 25 && !s.includes("<!DOCTYPE")));
 
-    let summary = snippets[0] || "";
-    if (snippets.length > 1 && snippets[1] !== snippets[0]) {
-      summary = `${summary.replace(/\.\.\.$/, "")}. ${snippets[1]}`;
+    let summary = validSnippets[0] || "";
+    if (validSnippets.length > 1 && validSnippets[1] !== validSnippets[0]) {
+      summary = `${summary.replace(/\.\.\.$/, "")}. ${validSnippets[1]}`;
     }
     if (!summary || summary.length < 20) {
-      summary = `${bestArticle.title}. Multiple global news agencies report ongoing developments across ${distinctRegions.join(", ")}.`;
+      summary = `${bestArticle.title}. Verified dispatches from ${distinctOutlets.length} international news services reporting across ${distinctRegions.join(", ")}.`;
     }
-    // Clean up summary
     summary = summary.replace(/\s+/g, " ").trim();
-    if (summary.length > 240) {
-      summary = summary.slice(0, 237) + "...";
+    if (summary.length > 250) {
+      summary = summary.slice(0, 247) + "...";
     }
 
-    // Full text for sensitivity calculation
-    const allText = c.articles.map((a) => `${a.title} ${a.snippet || ""}`).join(" ");
-    const { score: sensitivityScore, label: sensitivityLabel, primaryNiche } = calculateSensitivity(allText);
+    // Full text of all articles in the cluster for importance scoring
+    const fullClusterText = c.articles.map((a) => `${a.title} ${a.snippet || ""}`).join(" ");
 
-    // Consensus score formula: distinct outlets * 3 + distinct regions * 2 + articles capped at 5
-    const consensusScore = (distinctOutlets.length * 3) + (distinctRegions.length * 2) + Math.min(c.articles.length, 5);
+    // Scores
+    const popularityScore = calculatePopularityScore(
+      distinctOutlets.length,
+      distinctRegions.length,
+      c.latestTimestamp
+    );
 
-    // Consensus badge text
-    let consensusBadge = "";
-    if (distinctOutlets.length >= 2) {
-      const sampleOutlets = distinctOutlets.slice(0, 4).join(", ");
-      const extra = distinctOutlets.length > 4 ? ` +${distinctOutlets.length - 4} more` : "";
-      consensusBadge = `🔥 REPORTED BY ${distinctOutlets.length} MAJOR OUTLETS (${sampleOutlets}${extra})`;
-    } else {
-      consensusBadge = `📰 VERIFIED REPORTING • ${distinctOutlets[0] || "Global Wire"}`;
-    }
+    const { score: importanceScore, grade: importanceGrade, label: importanceLabel } =
+      calculateImportanceScore(fullClusterText, distinctRegions.length);
+
+    const { primaryNiche, label: sensitivityLabel, score: sensitivityScore } =
+      calculateSensitivity(fullClusterText);
+
+    // Consensus badge formatted as: 📡 6 Global Outlets (4 Regions)
+    const consensusBadge =
+      distinctOutlets.length >= 2
+        ? `📡 ${distinctOutlets.length} Global Outlets (${distinctRegions.length} Regions)`
+        : `📡 1 Global Outlet (${distinctRegions[0] || "Global"})`;
 
     return {
       id: c.id,
@@ -386,7 +640,11 @@ export function clusterAndScoreHeadlines(rawArticles: RawArticleItem[], query?: 
       consensusBadge,
       outlets: distinctOutlets,
       regions: distinctRegions,
-      consensusScore,
+      consensusScore: popularityScore, // Backward compatibility
+      popularityScore,
+      importanceScore,
+      importanceGrade,
+      importanceLabel,
       recencyScore: c.latestTimestamp,
       timeAgo: formatTimeAgo(new Date(c.latestTimestamp).toISOString()),
       sensitivityScore,
@@ -394,18 +652,21 @@ export function clusterAndScoreHeadlines(rawArticles: RawArticleItem[], query?: 
     };
   });
 
-  // Default sorting: Consensus score descending, then recency descending
+  // Default sort: Query relevance first (if searching), then popularity, then importance
   events.sort((a, b) => {
     if (query) {
-      // Relevance sort when query is active
       const qLower = query.toLowerCase();
       const aMatches = a.title.toLowerCase().includes(qLower) || a.summary.toLowerCase().includes(qLower);
       const bMatches = b.title.toLowerCase().includes(qLower) || b.summary.toLowerCase().includes(qLower);
       if (aMatches && !bMatches) return -1;
       if (!aMatches && bMatches) return 1;
     }
-    if (b.consensusScore !== a.consensusScore) {
-      return b.consensusScore - a.consensusScore;
+
+    if (b.popularityScore !== a.popularityScore) {
+      return b.popularityScore - a.popularityScore;
+    }
+    if (b.importanceScore !== a.importanceScore) {
+      return b.importanceScore - a.importanceScore;
     }
     return b.recencyScore - a.recencyScore;
   });

@@ -45,32 +45,30 @@ const NICHE_TABS: {
 const SORT_OPTIONS: {
   id: SortMode;
   label: string;
+  shortLabel: string;
   icon: React.ComponentType<{ className?: string }>;
   hint: string;
 }[] = [
   {
-    id: "consensus",
-    label: "Global Consensus",
+    id: "popularity",
+    label: "🔥 Sort by Popularity (Consensus)",
+    shortLabel: "🔥 Popularity",
     icon: Flame,
-    hint: "Ranked by distinct global outlets & regions",
+    hint: "Ranked strictly by number of distinct global news outlets & regions reporting",
+  },
+  {
+    id: "importance",
+    label: "🌍 Sort by Importance (S-Tier Impact)",
+    shortLabel: "🌍 Importance",
+    icon: Globe2,
+    hint: "Ranked by global economic & geopolitical impact (markets, energy, chokepoints, conflict)",
   },
   {
     id: "latest",
-    label: "Time (Latest)",
+    label: "🕒 Latest Time",
+    shortLabel: "🕒 Latest",
     icon: Clock,
     hint: "Most recent reporting timestamps",
-  },
-  {
-    id: "sensitivity",
-    label: "Sensitivity (Impact)",
-    icon: ShieldAlert,
-    hint: "Kinetic conflicts, health alerts & high stakes",
-  },
-  {
-    id: "relevance",
-    label: "Relevance",
-    icon: SlidersHorizontal,
-    hint: "Semantic keyword alignment",
   },
 ];
 
@@ -156,44 +154,58 @@ export const NewsSearchEngineBar: React.FC<NewsSearchEngineBarProps> = ({
 
       {/* 2. CONTROL BARS: SORT BY & GEOPOLITICAL NICHE TABS */}
       <div className="w-full flex flex-col gap-2.5 p-3 rounded-2xl bg-white/70 dark:bg-[#0E131F]/70 border border-slate-200 dark:border-white/10 backdrop-blur-md">
-        {/* ROW 1: SORT BY CONTROLS */}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-white/5 pb-2.5">
+        {/* ROW 1: PROMINENT POPULARITY VS IMPORTANCE SORT TOGGLE */}
+        <div className="flex flex-wrap items-center justify-between gap-2.5 border-b border-slate-100 dark:border-white/5 pb-2.5">
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
             <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-slate-400 dark:text-slate-400 mr-1 flex items-center gap-1">
-              <span>SORT BY:</span>
+              <span>SORT:</span>
             </span>
 
-            {SORT_OPTIONS.map((opt) => {
-              const Icon = opt.icon;
-              const isSelected = sortMode === opt.id;
-              return (
-                <button
-                  key={opt.id}
-                  onClick={() => onSelectSortMode(opt.id)}
-                  title={opt.hint}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                    isSelected
-                      ? "bg-blue-600 text-white font-semibold shadow-sm shadow-blue-600/30 ring-1 ring-blue-400/40"
-                      : "bg-slate-100 hover:bg-slate-200 dark:bg-[#06080F] dark:hover:bg-[#141C2E] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-white/5"
-                  }`}
-                >
-                  <Icon
-                    className={`w-3.5 h-3.5 ${
+            {/* Segmented Toggle Bar */}
+            <div className="inline-flex rounded-xl p-1 bg-slate-100 dark:bg-[#06080F] border border-slate-200 dark:border-white/10 gap-1">
+              {SORT_OPTIONS.map((opt) => {
+                const Icon = opt.icon;
+                const isSelected =
+                  sortMode === opt.id ||
+                  (opt.id === "popularity" && sortMode === "consensus") ||
+                  (opt.id === "importance" && sortMode === "sensitivity");
+
+                return (
+                  <button
+                    key={opt.id}
+                    onClick={() => onSelectSortMode(opt.id)}
+                    title={opt.hint}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                       isSelected
-                        ? "text-white"
-                        : opt.id === "consensus"
-                        ? "text-amber-500"
-                        : "text-slate-400"
+                        ? opt.id === "popularity"
+                          ? "bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-sm shadow-orange-500/25 ring-1 ring-orange-400/40"
+                          : opt.id === "importance"
+                          ? "bg-blue-600 text-white shadow-sm shadow-blue-600/30 ring-1 ring-blue-400/40"
+                          : "bg-slate-800 text-white dark:bg-white dark:text-slate-900 shadow-sm"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-white/5"
                     }`}
-                  />
-                  <span>{opt.label}</span>
-                </button>
-              );
-            })}
+                  >
+                    <Icon
+                      className={`w-3.5 h-3.5 ${
+                        isSelected
+                          ? "text-white dark:text-inherit"
+                          : opt.id === "popularity"
+                          ? "text-amber-500"
+                          : opt.id === "importance"
+                          ? "text-blue-500"
+                          : "text-slate-400"
+                      }`}
+                    />
+                    <span className="hidden sm:inline">{opt.label}</span>
+                    <span className="sm:hidden">{opt.shortLabel}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           <div className="flex items-center gap-2 text-xs font-mono text-slate-500 dark:text-slate-400">
-            <span className="hidden md:inline">Showing:</span>
+            <span className="hidden md:inline">Live Matrix:</span>
             <span className="px-2 py-0.5 rounded-md bg-blue-100/70 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-semibold border border-blue-500/20">
               {filteredClustersCount} / {totalClustersCount} Events
             </span>

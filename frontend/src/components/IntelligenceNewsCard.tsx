@@ -62,41 +62,58 @@ export const IntelligenceNewsCard: React.FC<IntelligenceNewsCardProps> = ({
           : "bg-white dark:bg-[#0E131F] border-slate-200 dark:border-white/10 hover:border-blue-500/40 hover:shadow-lg dark:hover:shadow-blue-500/5"
       }`}
     >
-      {/* 1. TOP BAR: CONSENSUS BADGE, SENSITIVITY PILL, TIME AGO */}
+      {/* 1. TOP BAR: DUAL BADGES (POPULARITY & IMPORTANCE) + TIME AGO */}
       <div className="flex flex-col gap-2.5 mb-3">
-        {/* Consensus Badge */}
+        {/* Row 1: Dual Badges (Badge 1: Global Outlets/Regions & Badge 2: Global Impact Tier) */}
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div
-            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold tracking-tight border ${
-              isMultiOutlet
-                ? "bg-gradient-to-r from-amber-500/15 via-orange-500/15 to-red-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30 shadow-sm"
-                : "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
-            }`}
-          >
-            {isMultiOutlet ? (
-              <Flame className="w-3.5 h-3.5 text-amber-500 animate-pulse shrink-0" />
-            ) : (
-              <Newspaper className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-            )}
-            <span className="truncate max-w-[320px] sm:max-w-[460px]">
-              {cluster.consensusBadge}
-            </span>
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+            {/* Badge 1: 📡 6 Global Outlets (4 Regions) */}
+            <div
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold tracking-tight border ${
+                isMultiOutlet
+                  ? "bg-gradient-to-r from-amber-500/15 via-orange-500/15 to-red-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30 shadow-sm"
+                  : "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
+              }`}
+            >
+              {isMultiOutlet ? (
+                <Flame className="w-3.5 h-3.5 text-amber-500 animate-pulse shrink-0" />
+              ) : (
+                <Radio className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+              )}
+              <span className="truncate max-w-[280px] sm:max-w-[360px]">
+                {cluster.consensusBadge ||
+                  `📡 ${cluster.outlets.length} Global Outlets (${cluster.regions.length} Regions)`}
+              </span>
+            </div>
+
+            {/* Badge 2: 🌍 94% Global Impact [S-Tier: Economy & Geopolitics] */}
+            <div
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold tracking-tight border ${
+                cluster.importanceGrade === "S-Tier" || (cluster.importanceScore || 0) >= 85
+                  ? "bg-gradient-to-r from-emerald-500/15 via-teal-500/15 to-blue-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 shadow-sm ring-1 ring-emerald-500/20"
+                  : cluster.importanceGrade === "A-Tier" || (cluster.importanceScore || 0) >= 70
+                  ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/25"
+                  : "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20"
+              }`}
+            >
+              <Globe className="w-3.5 h-3.5 opacity-80 shrink-0 text-emerald-500 dark:text-emerald-400" />
+              <span className="truncate max-w-[280px] sm:max-w-[360px]">
+                {cluster.importanceLabel ||
+                  `🌍 ${cluster.importanceScore || 85}% Global Impact [${
+                    cluster.importanceGrade || "A-Tier"
+                  }: Economy & Geopolitics]`}
+              </span>
+            </div>
           </div>
 
-          <div className="flex items-center gap-1 text-[11px] font-mono text-slate-400 dark:text-slate-400 shrink-0">
+          <div className="flex items-center gap-1 text-[11px] font-mono text-slate-400 dark:text-slate-400 shrink-0 ml-auto">
             <Clock className="w-3 h-3 text-slate-400" />
             <span>{cluster.timeAgo}</span>
           </div>
         </div>
 
-        {/* Continental Region & Sensitivity Pills */}
+        {/* Continental Region & Scope Pills */}
         <div className="flex flex-wrap items-center gap-1.5">
-          {/* Sensitivity Pill */}
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold uppercase tracking-wider bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
-            <ShieldAlert className="w-2.5 h-2.5" />
-            <span>{cluster.sensitivityLabel}</span>
-          </span>
-
           {/* Continental Regions */}
           {cluster.regions.map((region) => (
             <span

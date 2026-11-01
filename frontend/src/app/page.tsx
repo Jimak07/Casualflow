@@ -35,7 +35,7 @@ export default function Home() {
   const [selectedClusterId, setSelectedClusterId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [activeNiche, setActiveNiche] = useState<GeopoliticalNiche>("all");
-  const [sortMode, setSortMode] = useState<SortMode>("consensus");
+  const [sortMode, setSortMode] = useState<SortMode>("popularity");
 
   // Script Studio Selected Story
   const [selectedStory, setSelectedStory] = useState<StoryPitch | null>(null);
@@ -85,7 +85,7 @@ export default function Home() {
     };
 
     const category = nicheLabels[cluster.primaryNiche] || "Global Geopolitics";
-    const impactScore = Math.min(Math.max(cluster.consensusScore * 7, 78), 99);
+    const impactScore = cluster.importanceScore ?? Math.min(Math.max(cluster.consensusScore * 7, 78), 99);
 
     const verifiedSources = cluster.articles.map((art) => ({
       title: art.title,
@@ -128,7 +128,7 @@ export default function Home() {
           baselineOrigin: `Verified across ${cluster.regions.join(", ")}`,
           breakingUpdate: cluster.title,
           outletsReporting: `${cluster.outlets.length} Outlets: ${cluster.outlets.slice(0, 4).join(", ")}`,
-          metricTag: cluster.sensitivityLabel,
+          metricTag: cluster.importanceLabel || cluster.sensitivityLabel,
           source: cluster.outlets.slice(0, 3).join(", "),
         },
         historicalParallel: {
@@ -136,7 +136,7 @@ export default function Home() {
           period: "Historical Mirror (Tavily Precedent)",
           description:
             "Strategic historical parallels and chokepoint escalations will be retrieved and analyzed via AI in Script Studio.",
-          similarityScore: `${Math.min(cluster.consensusScore * 8, 95)}% Structural Match`,
+          similarityScore: `${cluster.popularityScore ?? Math.min(cluster.consensusScore * 8, 95)}% Structural Match`,
           lesson:
             "Diplomatic maneuvers, supply bottlenecks, and kinetic leverage follow recurring historical precedents.",
         },
@@ -145,7 +145,7 @@ export default function Home() {
           affectedGroup: "Civilians, Supply Chains & Global Households",
           description:
             "Downstream consumer consequences, supply disruptions, and ground-level inflationary impacts.",
-          dollarOrPriceMetric: cluster.sensitivityLabel.includes("High")
+          dollarOrPriceMetric: (cluster.importanceGrade === "S-Tier" || cluster.sensitivityLabel.includes("High"))
             ? "High Kinetic / Macro Impact"
             : "Strategic Shift",
           actionableTakeaway:
@@ -277,7 +277,7 @@ export default function Home() {
   // Handle Refresh Today's Top Headlines
   const handleRefreshToday = () => {
     setSearchQuery("");
-    setSortMode("consensus");
+    setSortMode("popularity");
     setActiveNiche("all");
     fetchRadar("");
   };
@@ -306,20 +306,28 @@ export default function Home() {
     // 3. Sort Mode
     result.sort((a, b) => {
       switch (sortMode) {
-        case "consensus":
-          if (b.consensusScore !== a.consensusScore) {
-            return b.consensusScore - a.consensusScore;
-          }
-          return b.recencyScore - a.recencyScore;
+        case "popularity":
+        case "consensus": {
+          const aPop = a.popularityScore ?? a.consensusScore * 10;
+          const bPop = b.popularityScore ?? b.consensusScore * 10;
+          if (bPop !== aPop) return bPop - aPop;
+          if (b.outlets.length !== a.outlets.length) return b.outlets.length - a.outlets.length;
+          return (b.recencyScore ?? 0) - (a.recencyScore ?? 0);
+        }
+
+        case "importance":
+        case "sensitivity": {
+          const aImp = a.importanceScore ?? a.sensitivityScore;
+          const bImp = b.importanceScore ?? b.sensitivityScore;
+          if (bImp !== aImp) return bImp - aImp;
+          const aPop = a.popularityScore ?? a.consensusScore * 10;
+          const bPop = b.popularityScore ?? b.consensusScore * 10;
+          if (bPop !== aPop) return bPop - aPop;
+          return (b.recencyScore ?? 0) - (a.recencyScore ?? 0);
+        }
 
         case "latest":
-          return b.recencyScore - a.recencyScore;
-
-        case "sensitivity":
-          if (b.sensitivityScore !== a.sensitivityScore) {
-            return b.sensitivityScore - a.sensitivityScore;
-          }
-          return b.consensusScore - a.consensusScore;
+          return (b.recencyScore ?? 0) - (a.recencyScore ?? 0);
 
         case "relevance":
           if (searchQuery.trim()) {
@@ -331,10 +339,10 @@ export default function Home() {
             if (aMatches && !bMatches) return -1;
             if (!aMatches && bMatches) return 1;
           }
-          return b.consensusScore - a.consensusScore;
+          return (b.popularityScore ?? b.consensusScore * 10) - (a.popularityScore ?? a.consensusScore * 10);
 
         default:
-          return b.consensusScore - a.consensusScore;
+          return (b.popularityScore ?? b.consensusScore * 10) - (a.popularityScore ?? a.consensusScore * 10);
       }
     });
 
