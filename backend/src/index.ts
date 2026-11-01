@@ -206,17 +206,24 @@ app.post("/api/synthesize", async (req: Request, res: Response) => {
       customQuery = "",
       apiKey = "",
       groqKey = "",
+      model = "",
+      provider = "",
     } = req.body;
 
     const rawKey = apiKey || groqKey;
-    const aiConfig = detectAiProvider(rawKey);
+    const aiConfig = detectAiProvider({
+      rawKey,
+      model,
+      provider,
+      purpose: "synthesize",
+    });
 
     if (!aiConfig) {
       return res.status(400).json({
         success: false,
         error: "NO_API_KEY",
         message:
-          "No AI API key configured. Please paste your Gemini, Groq, OpenRouter, or OpenAI key in the Settings modal.",
+          "No AI API key configured. Please paste your Vyce AI, Gemini, Groq, OpenRouter, or OpenAI key in the Settings modal.",
       });
     }
 
@@ -318,6 +325,7 @@ Synthesize 4 distinct, high-impact documentary pitches connecting these live hea
       success: true,
       count: (parsed.pitches || []).length,
       provider: aiConfig.providerLabel,
+      model: aiConfig.model,
       synthesizedAt: new Date().toISOString(),
       pitches: parsed.pitches || [],
     });
@@ -340,6 +348,8 @@ app.post("/api/script", async (req: Request, res: Response) => {
       tavilyKey = "",
       targetActIndex = null,
       currentSections = [],
+      model = "",
+      provider = "",
     } = req.body;
 
     if (!pitch) {
@@ -351,14 +361,19 @@ app.post("/api/script", async (req: Request, res: Response) => {
     }
 
     const rawKey = apiKey || groqKey;
-    const aiConfig = detectAiProvider(rawKey);
+    const aiConfig = detectAiProvider({
+      rawKey,
+      model,
+      provider,
+      purpose: "script",
+    });
 
     if (!aiConfig) {
       return res.status(400).json({
         success: false,
         error: "NO_API_KEY",
         message:
-          "No AI API key configured. Please paste your Gemini, Groq, OpenRouter, or OpenAI key in the Settings modal.",
+          "No AI API key configured. Please paste your Vyce AI, Gemini, Groq, OpenRouter, or OpenAI key in the Settings modal.",
       });
     }
 
@@ -554,6 +569,8 @@ Generate the full 5-act production documentary screenplay (1,500 - 2,000 words t
         success: true,
         updatedSection: parsed.updatedSection || parsed.section,
         targetActIndex,
+        provider: aiConfig.providerLabel,
+        model: aiConfig.model,
         regeneratedAt: new Date().toISOString(),
       });
     }
@@ -563,6 +580,8 @@ Generate the full 5-act production documentary screenplay (1,500 - 2,000 words t
       count: (parsed.sections || []).length,
       pitchId: pitch.id,
       sections: parsed.sections || [],
+      provider: aiConfig.providerLabel,
+      model: aiConfig.model,
       generatedAt: new Date().toISOString(),
       hasTavilyResearch: Boolean(verifiedResearchNotes),
     });

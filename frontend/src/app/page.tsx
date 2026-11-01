@@ -208,12 +208,16 @@ export default function Home() {
 
       // 2. Retrieve user's Universal AI key from localStorage
       let groqKey = "";
+      let model = "";
+      let provider = "";
       if (typeof window !== "undefined") {
         const savedKeys = localStorage.getItem("causalflow_api_keys");
         if (savedKeys) {
           try {
             const parsed = JSON.parse(savedKeys);
             groqKey = parsed.apiKey || parsed.groqKey || "";
+            model = parsed.model || "";
+            provider = parsed.provider || "";
           } catch (e) {
             console.error("Failed to parse api keys", e);
           }
@@ -226,7 +230,7 @@ export default function Home() {
         setIsSynthesizing(false);
 
         showToast(
-          "💡 Connect your Universal AI API key (Gemini, Groq, OpenRouter, or OpenAI) in settings to run live AI synthesis across 45 feeds!",
+          "💡 Connect your Universal AI API key (Vyce AI, Gemini, Groq, OpenRouter, or OpenAI) in settings to run live AI synthesis across 45 feeds!",
           "info",
           "Open Settings",
           () => setIsApiKeysOpen(true)
@@ -247,6 +251,8 @@ export default function Home() {
           customQuery: targetQuery || searchQuery || "",
           apiKey: groqKey,
           groqKey,
+          model,
+          provider,
         }),
       });
 
@@ -361,8 +367,14 @@ export default function Home() {
       setSelectedStory(mappedPitches[0]);
       localStorage.setItem("causalflow_stories", JSON.stringify(mergedStories));
 
+      const usedModel =
+        synthData.model ||
+        (model && model !== "auto" && model !== "hybrid"
+          ? model
+          : "deepseek-v4-flash");
+
       showToast(
-        `✓ Autonomous Dot-Connector synthesized ${mappedPitches.length} live documentary pitches!`,
+        `✓ Autonomous Dot-Connector synthesized ${mappedPitches.length} live pitches via ${usedModel}!`,
         "success"
       );
     } catch (err: any) {

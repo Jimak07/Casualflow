@@ -169,6 +169,8 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
   const handleDeepResearchAndGenerate = async () => {
     let groqKey = "";
     let tavilyKey = "";
+    let model = "";
+    let provider = "";
 
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("causalflow_api_keys");
@@ -177,6 +179,8 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
           const parsed = JSON.parse(saved);
           groqKey = parsed.apiKey || parsed.groqKey || "";
           tavilyKey = parsed.tavilyKey || "";
+          model = parsed.model || "";
+          provider = parsed.provider || "";
         } catch (e) {
           console.error("Failed to parse api keys", e);
         }
@@ -184,17 +188,21 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
     }
 
     if (!groqKey) {
-      showToast("💡 Please configure your Universal AI API key (Gemini, Groq, OpenRouter, or OpenAI) in Settings to run AI research & scriptwriting!");
+      showToast("💡 Please configure your Universal AI API key (Vyce AI, Gemini, Groq, OpenRouter, or OpenAI) in Settings to run AI research & scriptwriting!");
       onOpenApiKeys();
       return;
     }
 
+    const displayModel =
+      model && model !== "auto" && model !== "hybrid"
+        ? model
+        : "claude-sonnet-4-6";
     setIsGeneratingFullScript(true);
     setGenerationStep("1/2 Digging up live facts & historical archives via Tavily...");
 
     try {
       setTimeout(() => {
-        setGenerationStep("2/2 Writing 5-Act production documentary script via Universal AI...");
+        setGenerationStep(`2/2 Writing 5-Act production documentary script via ${displayModel}...`);
       }, 1800);
 
       const res = await fetch(API_ENDPOINTS.script, {
@@ -205,6 +213,8 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
           apiKey: groqKey,
           groqKey,
           tavilyKey,
+          model,
+          provider,
         }),
       });
 
@@ -231,10 +241,11 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
         JSON.stringify(generatedSections)
       );
 
+      const resolvedModel = data.model || displayModel;
       showToast(
         data.hasTavilyResearch
-          ? "✓ Verified with Tavily Research & drafted full 5-act script!"
-          : "✓ Drafted 5-act production script via Universal AI!"
+          ? `✓ Verified with Tavily Research & drafted full 5-act script via ${resolvedModel}!`
+          : `✓ Drafted 5-act production script via ${resolvedModel}!`
       );
     } catch (err: any) {
       console.error("Script generation error:", err);
@@ -249,6 +260,8 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
   const handleRegenerateSingleAct = async (actIndex: number) => {
     let groqKey = "";
     let tavilyKey = "";
+    let model = "";
+    let provider = "";
 
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("causalflow_api_keys");
@@ -257,6 +270,8 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
           const parsed = JSON.parse(saved);
           groqKey = parsed.apiKey || parsed.groqKey || "";
           tavilyKey = parsed.tavilyKey || "";
+          model = parsed.model || "";
+          provider = parsed.provider || "";
         } catch (e) {
           console.error("Failed to parse api keys", e);
         }
@@ -282,6 +297,8 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
           apiKey: groqKey,
           groqKey,
           tavilyKey,
+          model,
+          provider,
         }),
       });
 

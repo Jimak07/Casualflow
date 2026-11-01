@@ -82,6 +82,7 @@ export interface ApiKeysConfig {
   tavilyKey: string;
   customRssUrl: string;
   model: string;
+  provider?: string;
 }
 
 export type LensPreset = {
