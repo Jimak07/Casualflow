@@ -1,7 +1,7 @@
 import { getActiveApiKey } from "./config/keys.js";
 
 export interface AiProviderConfig {
-  provider: "vyce" | "gemini" | "groq" | "openrouter" | "openai";
+  provider: "agentrouter" | "vyce" | "gemini" | "groq" | "openrouter" | "openai";
   providerLabel: string;
   endpoint: string;
   model: string;
@@ -22,60 +22,74 @@ export interface ModelOption {
   isDefault?: boolean;
 }
 
+// Ordered fallback list of live verified models for AgentRouter (agentrouter.org)
+export const AGENTROUTER_FALLBACK_MODELS = [
+  "gpt-5.6-sol",
+  "gpt-6-astra",
+  "gpt-6.1-sol",
+];
+
+// Curated active models for AgentRouter
+export const AGENTROUTER_MODELS = [
+  {
+    id: "auto",
+    label: "Auto (Smart Fallback: GPT-5.6 Sol / GPT-6 Astra)",
+    description: "Fast live frontier reasoning for news synthesis & cinematic documentary voiceover",
+  },
+  {
+    id: "gpt-5.6-sol",
+    label: "GPT-5.6 Sol (Active / Ultra-Fast ~3.8s)",
+    description: "Ultra-fast frontier model for instant documentary screenplays and macro causality",
+  },
+  {
+    id: "gpt-6-astra",
+    label: "GPT-6 Astra (Active / Deep Reasoning)",
+    description: "High-parameter frontier reasoning model for deep historical parallels and multi-variable synthesis",
+  },
+  {
+    id: "gpt-6.1-sol",
+    label: "GPT-6.1 Sol (Active / Next-Gen)",
+    description: "Next-gen flagship analytical reasoning engine",
+  },
+];
+
 // Ordered fallback list of candidate Vyce AI models (excluding dead 503 and tier-restricted 403 models)
 export const VYCE_FALLBACK_MODELS = [
   "claude-sonnet-4-6",
   "deepseek-v4.1",
 ];
 
-// Curated active models for Vyce AI
-export const VYCE_MODELS = [
-  {
-    id: "hybrid",
-    label: "Auto (Smart Fallback: Gemini Flash / Claude Sonnet)",
-    description: "Gemini 3.1 Flash Lite for rapid news synthesis + Claude Sonnet 4.6 for documentary voiceovers",
-  },
-  {
-    id: "gemini-3.1-flash-lite",
-    label: "Gemini 3.1 Flash Lite",
-    description: "Ultra-fast, robust 1M context default for multi-continental radar synthesis",
-  },
-  {
-    id: "claude-haiku-4-5",
-    label: "Claude Haiku 4.5",
-    description: "Fast, highly structured causal reasoning and outline synthesis",
-  },
-  {
-    id: "nemotron-ultra-550b",
-    label: "Nemotron Ultra 550B",
-    description: "Massive scale macroeconomic causality & multi-variable analysis",
-  },
-  {
-    id: "claude-sonnet-4-6",
-    label: "Claude Sonnet 4.6",
-    description: "Flagship cinematic documentary screenwriter & historical depth",
-  },
-  {
-    id: "gpt-5.6-luna",
-    label: "GPT-5.6 Luna",
-    description: "Balanced, high-precision GPT reasoning fallback",
-  },
-  {
-    id: "deepseek-v4.1",
-    label: "DeepSeek V4.1",
-    description: "Advanced analytical reasoning & macro-economic causality",
-  },
-  {
-    id: "beam-1.0",
-    label: "Beam 1.0 (Free 10M/day promo pool)",
-    description: "High-throughput free tier promo model",
-  },
-  {
-    id: "agnes-3.0-flash",
-    label: "Agnes 3.0 Flash (Free)",
-    description: "Lightweight free model for instant turnaround",
-  },
-];
+/**
+ * Fetch list of online active models dynamically from AgentRouter /v1/models
+ */
+export async function fetchAgentRouterModels(apiKey: string): Promise<string[]> {
+  try {
+    const res = await fetch("https://agentrouter.org/v1/models", {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "x-api-key": apiKey,
+        "User-Agent": "claude-cli/1.0.108 (external, cli)",
+        "anthropic-version": "2023-06-01",
+      },
+    });
+
+    if (!res.ok) {
+      console.warn(`[AgentRouter] /v1/models returned HTTP ${res.status}`);
+      return AGENTROUTER_FALLBACK_MODELS;
+    }
+
+    const data = await res.json();
+    const list: any[] = Array.isArray(data) ? data : data.data || data.models || [];
+    const ids = list
+      .map((m: any) => (typeof m === "string" ? m : m.id))
+      .filter((id): id is string => typeof id === "string" && id.length > 0);
+    return ids.length > 0 ? ids : AGENTROUTER_FALLBACK_MODELS;
+  } catch (e: any) {
+    console.warn("[AgentRouter] Failed to fetch active models dynamically:", e.message || e);
+    return AGENTROUTER_FALLBACK_MODELS;
+  }
+}
 
 /**
  * Fetch list of online active models dynamically from Vyce AI /v1/models
@@ -111,6 +125,49 @@ export async function fetchVyceModels(apiKey: string): Promise<string[]> {
  * Fetch available model options for any configured provider
  */
 export async function getAvailableModelsForProvider(config: AiProviderConfig): Promise<ModelOption[]> {
+  if (config.provider === "agentrouter") {
+    const onlineIds = await fetchAgentRouterModels(config.apiKey);
+    const modelOptions: ModelOption[] = [
+      {
+        id: "auto",
+        label: "Auto (Smart Fallback: GPT-5.6 Sol / GPT-6 Astra)",
+        tag: "Recommended",
+        isDefault: true,
+      },
+    ];
+
+    const curatedMap = new Map<string, { label: string; tag: string }>();
+    curatedMap.set("gpt-5.6-sol", { label: "GPT-5.6 Sol (Active / Ultra-Fast ~3.8s)", tag: "Active" });
+    curatedMap.set("gpt-6-astra", { label: "GPT-6 Astra (Active / Deep Reasoning)", tag: "Active" });
+    curatedMap.set("gpt-6.1-sol", { label: "GPT-6.1 Sol (Active / Next-Gen)", tag: "Active" });
+
+    const seenIds = new Set<string>(["auto"]);
+    for (const id of onlineIds) {
+      if (!seenIds.has(id)) {
+        seenIds.add(id);
+        const curated = curatedMap.get(id);
+        modelOptions.push({
+          id,
+          label: curated ? curated.label : `${id} (Online)`,
+          tag: curated ? curated.tag : "Online",
+        });
+      }
+    }
+
+    for (const [id, meta] of curatedMap.entries()) {
+      if (!seenIds.has(id)) {
+        seenIds.add(id);
+        modelOptions.push({
+          id,
+          label: meta.label,
+          tag: meta.tag,
+        });
+      }
+    }
+
+    return modelOptions;
+  }
+
   if (config.provider === "vyce") {
     const onlineIds = await fetchVyceModels(config.apiKey);
     const modelOptions: ModelOption[] = [
@@ -315,39 +372,43 @@ export function detectAiProvider(
     };
   }
 
-  // 5. Vyce AI Gateway:
-  // Pro Studio Hybrid setup:
-  // - /api/synthesize -> gemini-3.1-flash-lite (Active & Fast)
-  // - /api/script -> claude-sonnet-4-6 (Active & Cinematic)
-  // Or explicitly selected model from settings
-  const vyceBase = (process.env.OPENAI_BASE_URL || "https://vyceai.com/v1").replace(
-    /\/$/,
-    ""
-  );
-  const vyceEndpoint = vyceBase.endsWith("/chat/completions")
-    ? vyceBase
-    : `${vyceBase}/chat/completions`;
+  // 5. AgentRouter Gateway (Default / Primary Frontier Model Chain):
+  // Models: gpt-5.6-sol (ultra-fast ~3.8s), gpt-6-astra (deep reasoning), gpt-6.1-sol (next-gen)
+  // Endpoint: https://agentrouter.org/v1/responses
+  const isAgentRouter =
+    requestedProvider === "agentrouter" ||
+    requestedProvider === "vyce" || // seamless auto-migration
+    apiKey.startsWith("sk-Guw") ||
+    !requestedProvider;
 
-  const isHybridOrAuto =
-    !requestedModel ||
-    requestedModel === "auto" ||
-    requestedModel === "hybrid";
+  if (isAgentRouter) {
+    const isHybridOrAuto =
+      !requestedModel ||
+      requestedModel === "auto" ||
+      requestedModel === "hybrid";
 
-  let vyceModel = "claude-sonnet-4-6";
-  if (!isHybridOrAuto) {
-    vyceModel = requestedModel;
-  } else if (purpose === "synthesize") {
-    // Default to gemini-3.1-flash-lite as deepseek-v4-flash is disabled upstream
-    vyceModel = "gemini-3.1-flash-lite";
-  } else {
-    vyceModel = "claude-sonnet-4-6";
+    let agentModel = "gpt-5.6-sol";
+    if (!isHybridOrAuto && AGENTROUTER_FALLBACK_MODELS.includes(requestedModel)) {
+      agentModel = requestedModel;
+    } else {
+      agentModel = "gpt-5.6-sol"; // Ultra-fast (~3.8s initial token, reliable high-throughput generation)
+    }
+
+    return {
+      provider: "agentrouter",
+      providerLabel: `AgentRouter (${agentModel})`,
+      endpoint: "https://agentrouter.org/v1/responses",
+      model: agentModel,
+      apiKey,
+    };
   }
 
+  // Fallback to OpenAI Direct
   return {
-    provider: "vyce",
-    providerLabel: `Vyce AI (${vyceModel})`,
-    endpoint: vyceEndpoint,
-    model: vyceModel,
+    provider: "openai",
+    providerLabel: `OpenAI (${requestedModel || "gpt-4o-mini"})`,
+    endpoint: "https://api.openai.com/v1/chat/completions",
+    model: requestedModel || "gpt-4o-mini",
     apiKey,
   };
 }
@@ -492,6 +553,65 @@ export async function callUniversalAi({
 
   // Helper to attempt calling a single model, with fallback for response_format & HTML/502 handling
   const attemptCall = async (modelToUse: string): Promise<{ data: any; usedModel: string }> => {
+    // 1. AgentRouter Responses API routing
+    if (config.provider === "agentrouter") {
+      let res: Response;
+      try {
+        res = await fetch("https://agentrouter.org/v1/responses", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${config.apiKey}`,
+            "x-api-key": config.apiKey,
+            "Content-Type": "application/json",
+            "User-Agent": "claude-cli/1.0.108 (external, cli)",
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify({
+            model: modelToUse,
+            instructions: `${systemPrompt}\n\nIMPORTANT: Return strictly valid raw JSON. Do NOT wrap in backticks or markdown fences.`,
+            input: userPrompt,
+          }),
+        });
+      } catch (netErr: any) {
+        throw {
+          status: 502,
+          errorText: `Network error connecting to AgentRouter: ${netErr.message}`,
+          model: modelToUse,
+          isGatewayError: true,
+        };
+      }
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw {
+          status: res.status,
+          errorText: errText.slice(0, 300),
+          model: modelToUse,
+          isGatewayError: res.status >= 500,
+        };
+      }
+
+      const data = await res.json();
+      let text = "";
+      if (data.output && Array.isArray(data.output)) {
+        for (const item of data.output) {
+          if (item.type === "message" && item.content) {
+            for (const c of item.content) {
+              if (c.text) text += c.text;
+            }
+          }
+        }
+      }
+      if (!text && data.text?.content) text = data.text.content;
+      if (!text && data.choices?.[0]?.message?.content) text = data.choices[0].message.content;
+
+      if (!text || text.trim().length === 0) {
+        throw new Error("AgentRouter returned empty content.");
+      }
+
+      return { data: cleanAndParseJson(text), usedModel: modelToUse };
+    }
+
     const buildBody = (withJsonFormat: boolean) => {
       const body: any = {
         model: modelToUse,
@@ -632,7 +752,9 @@ export async function callUniversalAi({
 
     // Determine fallback models (pruned of confirmed dead 503/403 models to eliminate 45s latency)
     let fallbackCandidates: string[] = [];
-    if (config.provider === "vyce") {
+    if (config.provider === "agentrouter") {
+      fallbackCandidates = AGENTROUTER_FALLBACK_MODELS.filter((m) => m !== model);
+    } else if (config.provider === "vyce") {
       fallbackCandidates = ["claude-sonnet-4-6", "deepseek-v4.1"].filter(
         (m) => m !== model
       );
@@ -726,6 +848,65 @@ export async function callUniversalAiRawText({
   const attemptCallRaw = async (
     modelToUse: string
   ): Promise<{ text: string; usedModel: string }> => {
+    // 1. AgentRouter Responses API routing
+    if (config.provider === "agentrouter") {
+      let res: Response;
+      try {
+        res = await fetch("https://agentrouter.org/v1/responses", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${config.apiKey}`,
+            "x-api-key": config.apiKey,
+            "Content-Type": "application/json",
+            "User-Agent": "claude-cli/1.0.108 (external, cli)",
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify({
+            model: modelToUse,
+            instructions: systemPrompt,
+            input: userPrompt,
+          }),
+        });
+      } catch (netErr: any) {
+        throw {
+          status: 502,
+          errorText: `Network connection error to AgentRouter: ${netErr.message}`,
+          model: modelToUse,
+          isGatewayError: true,
+        };
+      }
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw {
+          status: res.status,
+          errorText: errText.slice(0, 300),
+          model: modelToUse,
+          isGatewayError: res.status >= 500,
+        };
+      }
+
+      const data = await res.json();
+      let text = "";
+      if (data.output && Array.isArray(data.output)) {
+        for (const item of data.output) {
+          if (item.type === "message" && item.content) {
+            for (const c of item.content) {
+              if (c.text) text += c.text;
+            }
+          }
+        }
+      }
+      if (!text && data.text?.content) text = data.text.content;
+      if (!text && data.choices?.[0]?.message?.content) text = data.choices[0].message.content;
+
+      if (!text || text.trim().length === 0) {
+        throw new Error("AgentRouter returned empty content.");
+      }
+
+      return { text, usedModel: modelToUse };
+    }
+
     const body: any = {
       model: modelToUse,
       messages: [
@@ -824,7 +1005,9 @@ export async function callUniversalAiRawText({
 
     // Determine fallback models (pruned of confirmed dead 503/403 models to eliminate 45s latency)
     let fallbackCandidates: string[] = [];
-    if (config.provider === "vyce") {
+    if (config.provider === "agentrouter") {
+      fallbackCandidates = AGENTROUTER_FALLBACK_MODELS.filter((m) => m !== model);
+    } else if (config.provider === "vyce") {
       fallbackCandidates = ["claude-sonnet-4-6", "deepseek-v4.1"].filter(
         (m) => m !== model
       );

@@ -12,7 +12,6 @@ import { generateRssConsensusPitches } from "./fallbackSynthesis.js";
 import { buildVerifiedBriefingPack } from "./articleScraper.js";
 import { JIMAK_WRITING_STYLE_GUIDE } from "./jimakStyleGuide.js";
 import { getActiveApiKey } from "./config/keys.js";
-import { synthesizeJimakFallbackScript } from "./jimakFallback.js";
 
 import { clusterAndScoreHeadlines } from "./clustering.js";
 
@@ -1349,20 +1348,13 @@ REGENERATE ACT [${targetActIndex + 1}] strictly adhering to Jimak's style rules 
           temperature: 0.72,
         });
       } catch (aiError: any) {
-        console.warn(
-          `[CausalFlow Backend] Single act regen AI error across models (${aiError.message}). Generating from briefing pack...`
+        console.error(
+          `[CausalFlow Backend] Single act regen failed across models (${aiError.message})`
         );
-        const fallback = synthesizeJimakFallbackScript(sourceData, briefingPack, "long");
-        const actData = fallback.sections[targetActIndex] || fallback.sections[0];
-        return res.json({
-          success: true,
-          format,
-          updatedSection: actData,
-          targetActIndex,
-          provider: "CausalFlow Consensus Engine",
-          model: "Jimak Screenplay Engine (Evidence-Backed Fallback)",
-          isFallback: true,
-          regeneratedAt: new Date().toISOString(),
+        return res.status(502).json({
+          success: false,
+          error: "AI_GENERATION_FAILED",
+          message: `Live act regeneration failed: ${aiError.message}`,
         });
       }
 
@@ -1389,8 +1381,6 @@ REGENERATE ACT [${targetActIndex + 1}] strictly adhering to Jimak's style rules 
 
     // Call LLM with RAW TEXT output (no response_format: json_object, no JSON.parse failure!)
     let rawResult: { text: string; usedModel: string } | null = null;
-    let isFallbackMode = false;
-    let fallbackNotice = "";
 
     try {
       rawResult = await callUniversalAiRawText({
@@ -1401,70 +1391,21 @@ REGENERATE ACT [${targetActIndex + 1}] strictly adhering to Jimak's style rules 
         temperature: 0.72,
       });
     } catch (aiError: any) {
-      console.warn(
-        `[CausalFlow Backend] All AI models failed or returned gateway errors (${aiError.message}). Compiling Jimak screenplay from verified briefing pack...`
+      console.error(
+        `[CausalFlow Backend] All AI models failed (${aiError.message})`
       );
-      isFallbackMode = true;
-      fallbackNotice = "Notice: Upstream AI gateway is busy. Screenplay compiled from verified multi-outlet briefing pack.";
+      return res.status(502).json({
+        success: false,
+        error: "AI_GENERATION_FAILED",
+        message: `Live screenplay generation failed across models: ${aiError.message}`,
+      });
     }
 
-    if (isFallbackMode || !rawResult) {
-      const fallbackScript = synthesizeJimakFallbackScript(
-        sourceData,
-        briefingPack,
-        format
-      );
-
-      return res.json({
-        success: true,
-        format,
-        count: fallbackScript.sections.length,
-        pitchId: sourceData.id || "documentary-script",
-        sections: fallbackScript.sections,
-        fullVoiceover: fallbackScript.fullVoiceover,
-        meta: {
-          vehicle: fallbackScript.vehicle,
-          mechanism: fallbackScript.mechanism,
-        },
-        evidence: fallbackScript.evidence,
-        briefingPack: {
-          topic: briefingPack.topic,
-          consensusBadge: briefingPack.consensusBadge,
-          scrapedCount: briefingPack.scrapedArticles.length,
-          timelineCount: briefingPack.backgroundTimeline.length,
-          articles: briefingPack.scrapedArticles.map((a: any) => ({
-            title: a.title,
-            source: a.source,
-            url: a.url,
-            region: a.region,
-            pubDate: a.pubDate,
-            paragraphsCount: (a.paragraphs || []).length,
-            snippet: a.paragraphs?.[0] || "",
-          })),
-          backgroundTimeline: briefingPack.backgroundTimeline,
-          briefingPackText: briefingPack.briefingPackText,
-        },
-        verifiedSources: [
-          ...briefingPack.scrapedArticles.map((a: any) => ({
-            title: a.title,
-            source: a.source,
-            link: a.url,
-            region: a.region,
-          })),
-          ...fallbackScript.evidence
-            .filter((e) => e.url && e.source)
-            .map((e) => ({
-              title: e.claim.slice(0, 80),
-              source: e.source,
-              link: e.url,
-              region: "Cited in Script",
-            })),
-        ],
-        provider: "CausalFlow Consensus Engine",
-        model: "Jimak Screenplay Engine (Evidence-Backed Fallback)",
-        isFallback: true,
-        notice: fallbackNotice,
-        generatedAt: new Date().toISOString(),
+    if (!rawResult || !rawResult.text) {
+      return res.status(502).json({
+        success: false,
+        error: "AI_EMPTY_RESPONSE",
+        message: "Model returned empty content.",
       });
     }
 
@@ -1502,69 +1443,14 @@ REGENERATE ACT [${targetActIndex + 1}] strictly adhering to Jimak's style rules 
 
     voiceoverText = cleanVoiceoverNarration(voiceoverText);
 
-    // If model returned a stunted or empty script, fall back cleanly to Jimak Evidence Engine
     const wordCountExtracted = voiceoverText
       .split(/\s+/)
       .filter(Boolean).length;
-    if (wordCountExtracted < 80) {
-      console.warn(
-        `[CausalFlow Backend] AI returned truncated script (${wordCountExtracted} words). Synthesizing full Jimak screenplay from verified briefing pack...`
-      );
-      const fallbackScript = synthesizeJimakFallbackScript(
-        sourceData,
-        briefingPack,
-        format
-      );
-      return res.json({
-        success: true,
-        format,
-        count: fallbackScript.sections.length,
-        pitchId: sourceData.id || "documentary-script",
-        sections: fallbackScript.sections,
-        fullVoiceover: fallbackScript.fullVoiceover,
-        meta: {
-          vehicle: fallbackScript.vehicle,
-          mechanism: fallbackScript.mechanism,
-        },
-        evidence: fallbackScript.evidence,
-        briefingPack: {
-          topic: briefingPack.topic,
-          consensusBadge: briefingPack.consensusBadge,
-          scrapedCount: briefingPack.scrapedArticles.length,
-          timelineCount: briefingPack.backgroundTimeline.length,
-          articles: briefingPack.scrapedArticles.map((a: any) => ({
-            title: a.title,
-            source: a.source,
-            url: a.url,
-            region: a.region,
-            pubDate: a.pubDate,
-            paragraphsCount: (a.paragraphs || []).length,
-            snippet: a.paragraphs?.[0] || "",
-          })),
-          backgroundTimeline: briefingPack.backgroundTimeline,
-          briefingPackText: briefingPack.briefingPackText,
-        },
-        verifiedSources: [
-          ...briefingPack.scrapedArticles.map((a: any) => ({
-            title: a.title,
-            source: a.source,
-            link: a.url,
-            region: a.region,
-          })),
-          ...fallbackScript.evidence
-            .filter((e) => e.url && e.source)
-            .map((e) => ({
-              title: e.claim.slice(0, 80),
-              source: e.source,
-              link: e.url,
-              region: "Cited in Script",
-            })),
-        ],
-        provider: "CausalFlow Consensus Engine",
-        model: "Jimak Screenplay Engine (Evidence-Backed Fallback)",
-        isFallback: true,
-        notice: "Notice: Screenplay synthesized from multi-outlet evidence pack.",
-        generatedAt: new Date().toISOString(),
+    if (wordCountExtracted < 40) {
+      return res.status(502).json({
+        success: false,
+        error: "AI_GENERATION_TRUNCATED",
+        message: `Model returned an incomplete script (${wordCountExtracted} words). Please retry.`,
       });
     }
 

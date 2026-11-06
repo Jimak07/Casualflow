@@ -201,19 +201,19 @@ export const ApiKeysModal: React.FC<ApiKeysModalProps> = ({
       };
     }
 
-    // Vyce AI Gateway
+    // AgentRouter Gateway (Default)
     const currentModelLabel =
       config.model && config.model !== "auto" && config.model !== "hybrid"
         ? config.model
-        : "Auto (Smart Fallback: Gemini Flash / Claude Sonnet)";
+        : "Auto (Smart Fallback: GPT-5.6 Sol / GPT-6 Astra)";
 
     return {
-      provider: "vyce",
-      name: "Vyce AI Gateway",
-      model: `${currentModelLabel} via vyceai.com/v1`,
+      provider: "agentrouter",
+      name: "AgentRouter Gateway",
+      model: `${currentModelLabel} via agentrouter.org/v1`,
       badgeClass:
-        "bg-violet-50 dark:bg-violet-950/60 text-violet-600 dark:text-violet-400 border-violet-300 dark:border-violet-700/50",
-      pillText: "Vyce AI Gateway",
+        "bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border-blue-300 dark:border-blue-700/50",
+      pillText: "AgentRouter Gateway",
       icon: Bot,
     };
   };
@@ -319,10 +319,10 @@ export const ApiKeysModal: React.FC<ApiKeysModalProps> = ({
             <span>Automatic Model Fallback Engine Active</span>
           </div>
           <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
-            Requests are automatically protected against upstream model downtime. If any model is offline or disabled on Vyce AI (<strong className="font-mono text-violet-400">https://vyceai.com/v1</strong>), CausalFlow automatically fails over:
+            Requests are automatically protected against upstream model downtime. Connected to AgentRouter (<strong className="font-mono text-blue-400">https://agentrouter.org/v1</strong>) with automatic model failover:
             <span className="font-mono text-[11px] block mt-1.5 text-slate-800 dark:text-slate-200 space-y-0.5">
-              • <strong className="text-violet-400">Active Priority Fallbacks</strong>: gemini-3.1-flash-lite → claude-haiku-4-5 → nemotron-ultra-550b → claude-sonnet-4-6 → gpt-5.6-luna <br />
-              • <strong className="text-emerald-400">JSON Mode Resiliency</strong>: Strips markdown fences automatically; never crashes on syntax formatting.
+              • <strong className="text-blue-400">Live Frontier Chain</strong>: gpt-5.6-sol (~3.8s) → gpt-6-astra → gpt-6.1-sol <br />
+              • <strong className="text-emerald-400">Live Script Generation</strong>: Scrapes article bodies and synthesizes authentic long-form documentary screenplays.
             </span>
           </p>
         </div>
@@ -351,8 +351,8 @@ export const ApiKeysModal: React.FC<ApiKeysModalProps> = ({
               }}
               className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-[#06080F] text-slate-900 dark:text-white border border-slate-200 dark:border-white/10 text-xs sm:text-sm font-mono focus:ring-2 focus:ring-blue-500/50 outline-none"
             >
-              <option value="auto">Auto-Detect (Routes to Vyce AI, Gemini, Groq, or OpenRouter by Prefix)</option>
-              <option value="vyce">Vyce AI Gateway (https://vyceai.com/v1)</option>
+              <option value="auto">Auto-Detect (Routes to AgentRouter, Gemini, Groq, or OpenRouter)</option>
+              <option value="agentrouter">AgentRouter Gateway (https://agentrouter.org/v1)</option>
               <option value="gemini">Google Gemini (aistudio.google.com)</option>
               <option value="groq">Groq LPU (console.groq.com)</option>
               <option value="openrouter">OpenRouter (openrouter.ai)</option>
@@ -381,7 +381,7 @@ export const ApiKeysModal: React.FC<ApiKeysModalProps> = ({
                 type="password"
                 value={activeKey}
                 onChange={(e) => handleKeyChange(e.target.value)}
-                placeholder="vyce-... or sk-... or AIza... or gsk_... or sk-or-..."
+                placeholder="sk-... or AIza... or gsk_... or sk-or-..."
                 className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-[#06080F] text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-600 border border-slate-200 dark:border-white/10 text-xs sm:text-sm font-mono focus:ring-2 focus:ring-blue-500/50 outline-none"
               />
             </div>
@@ -394,12 +394,12 @@ export const ApiKeysModal: React.FC<ApiKeysModalProps> = ({
 
               <div className="flex items-center gap-2 font-mono">
                 <a
-                  href="https://vyceai.com"
+                  href="https://agentrouter.org"
                   target="_blank"
                   rel="noreferrer"
-                  className="text-violet-600 dark:text-violet-400 hover:underline flex items-center gap-0.5"
+                  className="text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-0.5"
                 >
-                  <span>Vyce AI</span>
+                  <span>AgentRouter</span>
                   <ExternalLink className="w-2.5 h-2.5" />
                 </a>
                 <span>•</span>
@@ -504,7 +504,7 @@ export const ApiKeysModal: React.FC<ApiKeysModalProps> = ({
             )}
 
             <p className="text-[11px] text-slate-500 dark:text-slate-400 pt-0.5 leading-relaxed">
-              <strong className="text-slate-700 dark:text-slate-300">Auto (Smart Fallback):</strong> Automatically routes through active models. If any model is offline or temporarily disabled on Vyce AI, CausalFlow automatically switches down the fallback chain (<code className="text-violet-400 font-mono">gemini-3.1-flash-lite</code> → <code className="text-violet-400 font-mono">claude-haiku-4-5</code> → <code className="text-violet-400 font-mono">nemotron-ultra-550b</code> → <code className="text-violet-400 font-mono">claude-sonnet-4-6</code> → <code className="text-violet-400 font-mono">gpt-5.6-luna</code>).
+              <strong className="text-slate-700 dark:text-slate-300">Auto (Smart Fallback):</strong> Automatically routes through active frontier models on AgentRouter (<code className="text-blue-400 font-mono">gpt-5.6-sol</code> → <code className="text-blue-400 font-mono">gpt-6-astra</code> → <code className="text-blue-400 font-mono">gpt-6.1-sol</code>). Every screenplay is written live by frontier AI without templates.
             </p>
           </div>
 

@@ -242,6 +242,22 @@ export default function Home() {
           console.error("Failed to parse cached clusters", e);
         }
       }
+
+      // 3. Purge obsolete Vyce AI keys from browser localStorage
+      const savedKeys = localStorage.getItem("causalflow_api_keys");
+      if (savedKeys) {
+        try {
+          const parsed = JSON.parse(savedKeys);
+          if (
+            (parsed.apiKey && parsed.apiKey.startsWith("sk-20b8")) ||
+            (parsed.groqKey && parsed.groqKey.startsWith("sk-20b8")) ||
+            parsed.provider === "vyce"
+          ) {
+            console.log("Purging dead Vyce AI key from localStorage...");
+            localStorage.removeItem("causalflow_api_keys");
+          }
+        } catch {}
+      }
     }
 
     // Automatically load today's breaking global stories immediately on open
