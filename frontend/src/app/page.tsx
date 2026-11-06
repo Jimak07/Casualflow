@@ -388,48 +388,107 @@ export default function Home() {
 
     setIsBuildingStoryline(true);
     showToast(
-      `Building Storyline Map & Economics Explained Script for "${cluster.title.slice(0, 36)}..."`,
+      `Generating Full Jimak Screenplay & Storyline for "${cluster.title.slice(0, 36)}..."`,
       "info"
     );
 
     try {
-      const res = await fetch(API_ENDPOINTS.storyline, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          cluster,
-          apiKey: groqKey,
-          groqKey,
-          tavilyKey,
-          model,
-          provider,
-        }),
-      });
+      // Execute both Storyline Map and Full Jimak Documentary Screenplay in parallel
+      const [storylineSettled, scriptSettled] = await Promise.allSettled([
+        fetch(API_ENDPOINTS.storyline, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            cluster,
+            apiKey: groqKey,
+            groqKey,
+            tavilyKey,
+            model,
+            provider,
+          }),
+        }).then((r) => r.json()),
+        fetch(API_ENDPOINTS.script, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            cluster,
+            pitch,
+            format: "long",
+            apiKey: groqKey,
+            groqKey,
+            tavilyKey,
+            model,
+            provider,
+          }),
+        }).then((r) => r.json()),
+      ]);
 
-      const data = await res.json();
-      if (data && data.success) {
-        const updatedPitch: StoryPitch = {
-          ...pitch,
-          storylineMap: data.storylineMap,
-          verifiedSources: data.verifiedSources || pitch.verifiedSources,
-          evidencePack: data.evidencePack,
-          script: {
-            sections: data.scriptSections,
-          },
-        };
-        setSelectedStory(updatedPitch);
-        localStorage.setItem(`causalflow_script_${updatedPitch.id}`, JSON.stringify(data.scriptSections));
-        localStorage.setItem(`causalflow_storyline_${updatedPitch.id}`, JSON.stringify(data.storylineMap));
+      const storylineData =
+        storylineSettled.status === "fulfilled" && storylineSettled.value?.success
+          ? storylineSettled.value
+          : null;
 
-        showToast(
-          data.isFallback
-            ? `✓ Built Storyline Map & 5-Act Script via Consensus Engine!`
-            : `✓ Built 3-Part Storyline Map & Economics Explained Script via ${data.model || "AI"}!`,
-          "success"
-        );
+      const scriptData =
+        scriptSettled.status === "fulfilled" && scriptSettled.value?.success
+          ? scriptSettled.value
+          : null;
+
+      const finalSections =
+        (scriptData && scriptData.sections && scriptData.sections.length > 0)
+          ? scriptData.sections
+          : (storylineData && storylineData.scriptSections && storylineData.scriptSections.length > 0)
+          ? storylineData.scriptSections
+          : [];
+
+      const finalStorylineMap =
+        storylineData?.storylineMap || pitch.storylineMap;
+
+      const finalBriefingPack =
+        scriptData?.briefingPack || null;
+
+      const finalVerifiedSources =
+        scriptData?.verifiedSources || storylineData?.verifiedSources || pitch.verifiedSources;
+
+      const updatedPitch: StoryPitch = {
+        ...pitch,
+        storylineMap: finalStorylineMap,
+        briefingPack: finalBriefingPack,
+        verifiedSources: finalVerifiedSources,
+        evidencePack: storylineData?.evidencePack || pitch.evidencePack,
+        script: {
+          sections: finalSections,
+        },
+      };
+
+      setSelectedStory(updatedPitch);
+
+      if (typeof window !== "undefined") {
+        if (finalSections.length > 0) {
+          localStorage.setItem(
+            `causalflow_script_${updatedPitch.id}`,
+            JSON.stringify(finalSections)
+          );
+        }
+        if (finalStorylineMap) {
+          localStorage.setItem(
+            `causalflow_storyline_${updatedPitch.id}`,
+            JSON.stringify(finalStorylineMap)
+          );
+        }
+        if (finalBriefingPack) {
+          localStorage.setItem(
+            `causalflow_briefing_${updatedPitch.id}`,
+            JSON.stringify(finalBriefingPack)
+          );
+        }
       }
+
+      showToast(
+        `✓ Generated ${finalSections.length}-act Jimak Screenplay & Storyline Map!`,
+        "success"
+      );
     } catch (err: any) {
-      console.error("Failed to build storyline:", err);
+      console.error("Failed to build storyline & script:", err);
       showToast(
         "Loaded cluster into Studio. You can generate or edit the script directly.",
         "info"
@@ -615,10 +674,32 @@ export default function Home() {
                     isSelected={selectedClusterId === cluster.id}
                     onSelect={(cl) => {
                       setSelectedClusterId(cl.id);
-                      setSelectedStory(mapClusterToPitch(cl));
-                      if (window.innerWidth < 1024) {
-                        setMobileActiveTab("studio");
+                      if (typeof window !== "undefined") {
+                        const cachedScript = localStorage.getItem(`causalflow_script_${cl.id}`);
+                        if (cachedScript) {
+                          try {
+                            const parsed = JSON.parse(cachedScript);
+                            if (Array.isArray(parsed) && parsed.length > 0) {
+                              const p = mapClusterToPitch(cl);
+                              p.script = { sections: parsed };
+                              const cachedStoryline = localStorage.getItem(`causalflow_storyline_${cl.id}`);
+                              const cachedBriefing = localStorage.getItem(`causalflow_briefing_${cl.id}`);
+                              if (cachedStoryline) {
+                                try { p.storylineMap = JSON.parse(cachedStoryline); } catch {}
+                              }
+                              if (cachedBriefing) {
+                                try { p.briefingPack = JSON.parse(cachedBriefing); } catch {}
+                              }
+                              setSelectedStory(p);
+                              if (window.innerWidth < 1024) {
+                                setMobileActiveTab("studio");
+                              }
+                              return;
+                            }
+                          } catch {}
+                        }
                       }
+                      handleBuildStoryline(cl);
                     }}
                     onBuildStoryline={handleBuildStoryline}
                   />

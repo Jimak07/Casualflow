@@ -92,13 +92,33 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
     }, 4000);
   };
 
-  // Load Saved Library from localStorage on mount
+  // Load Saved Library from localStorage on mount & auto-purge corrupted 0m 0s / 0-word entries
   useEffect(() => {
     if (typeof window !== "undefined") {
       const stored = localStorage.getItem("causalflow_saved_library");
       if (stored) {
         try {
-          setSavedLibrary(JSON.parse(stored));
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) {
+            const valid = parsed.filter(
+              (entry: SavedScriptEntry) =>
+                entry &&
+                typeof entry.wordCount === "number" &&
+                entry.wordCount > 0 &&
+                entry.runtime &&
+                !entry.runtime.startsWith("0m 0s") &&
+                Array.isArray(entry.sections) &&
+                entry.sections.length > 0 &&
+                entry.sections.some(
+                  (s) => s.narration && s.narration.trim().length > 0
+                )
+            );
+            setSavedLibrary(valid);
+            localStorage.setItem(
+              "causalflow_saved_library",
+              JSON.stringify(valid)
+            );
+          }
         } catch (e) {
           console.error("Failed to load saved library", e);
         }
@@ -225,16 +245,23 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
     );
   }
 
-  // Calculate live word count & speaking time
-  const fullNarration = sections.map((s) => s.narration).join("\n\n");
+  // Calculate live word count & speaking time strictly from pure voiceover narration
+  const fullNarration = sections
+    .map((s) => s.narration || "")
+    .join("\n\n")
+    .trim();
   const totalWords = fullNarration
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean).length;
-  // Documentary pacing: ~145 words/minute
-  const totalMinutes = Math.floor(totalWords / 145);
-  const remainingSeconds = Math.round(((totalWords % 145) / 145) * 60);
-  const runtimeCalculated = `${totalMinutes}m ${remainingSeconds}s`;
+    ? fullNarration.split(/\s+/).filter(Boolean).length
+    : 0;
+  // Documentary pacing: ~150 words/minute
+  const totalMinutes = Math.floor(totalWords / 150);
+  const remainingSeconds = Math.round(((totalWords % 150) / 150) * 60);
+  const runtimeCalculated =
+    totalWords > 0
+      ? `${totalMinutes}m ${remainingSeconds}s`
+      : isBuildingStoryline || isGeneratingFullScript
+      ? "Generating..."
+      : "0m 0s";
 
   // Act change handlers
   const handleNarrationChange = (index: number, newNarration: string) => {
@@ -484,6 +511,11 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
 
   // 5. Save to Saved Scripts Library (localStorage)
   const handleSaveToLibrary = () => {
+    if (totalWords === 0 || sections.length === 0) {
+      showToast("⚠️ Cannot save an empty screenplay. Please generate a script first.");
+      return;
+    }
+
     const newEntry: SavedScriptEntry = {
       id: `saved-${Date.now()}`,
       pitchId: selectedStory.id,
@@ -496,17 +528,20 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
         minute: "2-digit",
       }),
       wordCount: totalWords,
-      runtime: runtimeCalculated,
+      runtime: `${totalMinutes}m ${remainingSeconds}s`,
       sections,
     };
 
-    const updatedLibrary = [newEntry, ...savedLibrary.filter((s) => s.pitchId !== selectedStory.id)];
+    const updatedLibrary = [
+      newEntry,
+      ...savedLibrary.filter((s) => s.pitchId !== selectedStory.id),
+    ];
     setSavedLibrary(updatedLibrary);
     localStorage.setItem("causalflow_saved_library", JSON.stringify(updatedLibrary));
     localStorage.setItem(`causalflow_script_${selectedStory.id}`, JSON.stringify(sections));
 
     setCopyStatus("saved");
-    showToast(`✓ Saved "${selectedStory.title.slice(0, 30)}..." to Saved Scripts Library!`);
+    showToast(`✓ Saved "${selectedStory.title.slice(0, 30)}..." (${totalWords} words) to Saved Scripts Library!`);
     setTimeout(() => setCopyStatus("idle"), 2500);
   };
 

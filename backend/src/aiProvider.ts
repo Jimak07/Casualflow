@@ -22,13 +22,10 @@ export interface ModelOption {
   isDefault?: boolean;
 }
 
-// Ordered fallback list of reliable active Vyce AI models
+// Ordered fallback list of candidate Vyce AI models (excluding dead 503 and tier-restricted 403 models)
 export const VYCE_FALLBACK_MODELS = [
-  "gemini-3.1-flash-lite",
-  "claude-haiku-4-5",
-  "nemotron-ultra-550b",
   "claude-sonnet-4-6",
-  "gpt-5.6-luna",
+  "deepseek-v4.1",
 ];
 
 // Curated active models for Vyce AI
@@ -633,35 +630,12 @@ export async function callUniversalAi({
       throw new Error(`[${config.providerLabel}] Request failed (${status}): ${errorText.slice(0, 300)}`);
     }
 
-    // Determine fallback models
+    // Determine fallback models (pruned of confirmed dead 503/403 models to eliminate 45s latency)
     let fallbackCandidates: string[] = [];
     if (config.provider === "vyce") {
-      // 1. Ordered priority list from user instructions
-      const userPriority = [
-        "gemini-3.1-flash-lite",
-        "claude-haiku-4-5",
-        "nemotron-ultra-550b",
-        "claude-sonnet-4-6",
-        "gpt-5.6-luna",
-        "deepseek-v4.1",
-        "beam-1.0",
-        "agnes-3.0-flash",
-      ];
-
-      // Try fetching live active models if gateway is reachable
-      let liveVyceModels: string[] = [];
-      try {
-        liveVyceModels = await fetchVyceModels(config.apiKey);
-      } catch {}
-
-      const combined = [...userPriority];
-      for (const m of liveVyceModels) {
-        if (!combined.includes(m)) {
-          combined.push(m);
-        }
-      }
-
-      fallbackCandidates = combined.filter((m) => m !== model);
+      fallbackCandidates = ["claude-sonnet-4-6", "deepseek-v4.1"].filter(
+        (m) => m !== model
+      );
     } else if (config.provider === "groq") {
       fallbackCandidates = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"].filter(
         (m) => m !== model
@@ -677,27 +651,40 @@ export async function callUniversalAi({
       ].filter((m) => m !== model);
     }
 
-    if (fallbackCandidates.length === 0) {
-      throw new Error(`[${config.providerLabel}] Request failed (${status}): ${errorText.slice(0, 300)}`);
+    let lastError = errorText;
+    if (fallbackCandidates.length > 0) {
+      console.log(
+        `[${config.providerLabel}] Initiating automatic fallback chain across: ${fallbackCandidates.join(", ")}`
+      );
+
+      for (const candidate of fallbackCandidates) {
+        try {
+          console.log(`[${config.providerLabel}] Trying fallback model: ${candidate}...`);
+          const fallbackRes = await attemptCall(candidate);
+          console.log(`[${config.providerLabel}] ✓ Fallback successful with: ${candidate}`);
+          return { ...fallbackRes.data, _usedModel: candidate };
+        } catch (fbErr: any) {
+          lastError = fbErr.errorText || fbErr.message || "";
+          console.warn(
+            `[${config.providerLabel}] Fallback candidate "${candidate}" failed: ${lastError.slice(0, 120)}`
+          );
+        }
+      }
     }
 
-    console.log(
-      `[${config.providerLabel}] Initiating automatic fallback chain across: ${fallbackCandidates.join(", ")}`
-    );
-
-    let lastError = errorText;
-    for (const candidate of fallbackCandidates) {
-      try {
-        console.log(`[${config.providerLabel}] Trying fallback model: ${candidate}...`);
-        const fallbackRes = await attemptCall(candidate);
-        console.log(`[${config.providerLabel}] ✓ Fallback successful with: ${candidate}`);
-        return { ...fallbackRes.data, _usedModel: candidate };
-      } catch (fbErr: any) {
-        lastError = fbErr.errorText || fbErr.message || "";
-        console.warn(
-          `[${config.providerLabel}] Fallback candidate "${candidate}" failed: ${lastError.slice(0, 120)}`
-        );
-      }
+    // Free keyless Pollinations AI JSON fallback (text.pollinations.ai)
+    try {
+      console.log(`[${config.providerLabel}] Attempting keyless Pollinations AI fallback (openai)...`);
+      const polResult = await callPollinationsAiJson({
+        systemPrompt,
+        userPrompt,
+        maxTokens,
+        temperature,
+      });
+      console.log(`[${config.providerLabel}] ✓ Pollinations AI fallback succeeded!`);
+      return { ...polResult.data, _usedModel: polResult.usedModel };
+    } catch (polErr: any) {
+      console.warn(`[${config.providerLabel}] Pollinations fallback failed: ${polErr.message}`);
     }
 
     throw new Error(
@@ -835,19 +822,12 @@ export async function callUniversalAiRawText({
       );
     }
 
-    // Determine fallback models
+    // Determine fallback models (pruned of confirmed dead 503/403 models to eliminate 45s latency)
     let fallbackCandidates: string[] = [];
     if (config.provider === "vyce") {
-      fallbackCandidates = [
-        "gemini-3.1-flash-lite",
-        "claude-haiku-4-5",
-        "nemotron-ultra-550b",
-        "claude-sonnet-4-6",
-        "gpt-5.6-luna",
-        "deepseek-v4.1",
-        "beam-1.0",
-        "agnes-3.0-flash",
-      ].filter((m) => m !== model);
+      fallbackCandidates = ["claude-sonnet-4-6", "deepseek-v4.1"].filter(
+        (m) => m !== model
+      );
     } else if (config.provider === "groq") {
       fallbackCandidates = [
         "llama-3.3-70b-versatile",
@@ -867,37 +847,129 @@ export async function callUniversalAiRawText({
       ].filter((m) => m !== model);
     }
 
-    if (fallbackCandidates.length === 0) {
-      throw new Error(
-        `[${config.providerLabel}] Request failed (${status}): ${errorText.slice(0, 300)}`
+    let lastError = errorText;
+    if (fallbackCandidates.length > 0) {
+      console.log(
+        `[${config.providerLabel}] Initiating raw-text fallback chain across: ${fallbackCandidates.join(", ")}`
       );
+
+      for (const candidate of fallbackCandidates) {
+        try {
+          console.log(
+            `[${config.providerLabel}] Trying fallback model: ${candidate}...`
+          );
+          const result = await attemptCallRaw(candidate);
+          console.log(
+            `[${config.providerLabel}] ✓ Fallback successful with: ${candidate}`
+          );
+          return result;
+        } catch (fbErr: any) {
+          lastError = fbErr.errorText || fbErr.message || "";
+          console.warn(
+            `[${config.providerLabel}] Fallback candidate "${candidate}" failed: ${lastError.slice(0, 120)}`
+          );
+        }
+      }
     }
 
-    console.log(
-      `[${config.providerLabel}] Initiating raw-text fallback chain across: ${fallbackCandidates.join(", ")}`
-    );
-
-    let lastError = errorText;
-    for (const candidate of fallbackCandidates) {
-      try {
-        console.log(
-          `[${config.providerLabel}] Trying fallback model: ${candidate}...`
-        );
-        const result = await attemptCallRaw(candidate);
-        console.log(
-          `[${config.providerLabel}] ✓ Fallback successful with: ${candidate}`
-        );
-        return result;
-      } catch (fbErr: any) {
-        lastError = fbErr.errorText || fbErr.message || "";
-        console.warn(
-          `[${config.providerLabel}] Fallback candidate "${candidate}" failed: ${lastError.slice(0, 120)}`
-        );
-      }
+    // Free keyless Pollinations AI raw-text fallback (text.pollinations.ai)
+    try {
+      console.log(`[${config.providerLabel}] Attempting keyless Pollinations AI raw-text fallback (openai)...`);
+      const polResult = await callPollinationsAiRawText({
+        systemPrompt,
+        userPrompt,
+        maxTokens,
+        temperature,
+      });
+      console.log(`[${config.providerLabel}] ✓ Pollinations AI raw-text fallback succeeded!`);
+      return polResult;
+    } catch (polErr: any) {
+      console.warn(`[${config.providerLabel}] Pollinations raw-text fallback failed: ${polErr.message}`);
     }
 
     throw new Error(
       `[${config.providerLabel}] All models in raw-text fallback chain failed. Primary: ${errorText.slice(0, 200)} | Last: ${lastError.slice(0, 200)}`
     );
   }
+}
+
+/**
+ * Keyless free fallback using text.pollinations.ai OpenAI-compatible endpoint.
+ * Requires no API key, highly resilient, returns OpenAI chat completion payload.
+ */
+export async function callPollinationsAiRawText({
+  systemPrompt,
+  userPrompt,
+  maxTokens = 4200,
+  temperature = 0.72,
+}: {
+  systemPrompt: string;
+  userPrompt: string;
+  maxTokens?: number;
+  temperature?: number;
+}): Promise<{ text: string; usedModel: string }> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 35000);
+
+  try {
+    const res = await fetch("https://text.pollinations.ai/openai", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: "openai",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature,
+        max_tokens: maxTokens,
+      }),
+    });
+    clearTimeout(timeoutId);
+
+    if (!res.ok) {
+      throw new Error(`Pollinations HTTP ${res.status}`);
+    }
+
+    const data = await res.json();
+    const content = data?.choices?.[0]?.message?.content || "";
+    if (!content || content.trim().length === 0) {
+      throw new Error("Pollinations returned empty content");
+    }
+
+    return { text: content, usedModel: "pollinations/openai" };
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    throw new Error(`Pollinations API failed: ${err.message}`);
+  }
+}
+
+/**
+ * Keyless free fallback for structured JSON tasks using Pollinations AI.
+ */
+export async function callPollinationsAiJson<T = any>({
+  systemPrompt,
+  userPrompt,
+  maxTokens = 3500,
+  temperature = 0.7,
+}: {
+  systemPrompt: string;
+  userPrompt: string;
+  maxTokens?: number;
+  temperature?: number;
+}): Promise<{ data: T; usedModel: string }> {
+  const raw = await callPollinationsAiRawText({
+    systemPrompt: `${systemPrompt}\n\nIMPORTANT: Return strictly valid JSON. Do NOT wrap in markdown fences or backticks.`,
+    userPrompt,
+    maxTokens,
+    temperature,
+  });
+
+  return {
+    data: cleanAndParseJson<T>(raw.text),
+    usedModel: raw.usedModel,
+  };
 }
