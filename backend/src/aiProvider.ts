@@ -1,3 +1,5 @@
+import { getActiveApiKey } from "./config/keys.js";
+
 export interface AiProviderConfig {
   provider: "vyce" | "gemini" | "groq" | "openrouter" | "openai";
   providerLabel: string;
@@ -251,13 +253,7 @@ export function detectAiProvider(
 
   const apiKey =
     rawKey ||
-    process.env.VYCE_API_KEY ||
-    process.env.UNIVERSAL_AI_KEY ||
-    process.env.GEMINI_API_KEY ||
-    process.env.GROQ_API_KEY ||
-    process.env.OPENROUTER_API_KEY ||
-    process.env.OPENAI_API_KEY ||
-    "";
+    getActiveApiKey();
 
   if (!apiKey) return null;
 
@@ -706,6 +702,202 @@ export async function callUniversalAi({
 
     throw new Error(
       `[${config.providerLabel}] All models in fallback chain failed. Primary model error: ${errorText.slice(0, 200)} | Last fallback error: ${lastError.slice(0, 200)}`
+    );
+  }
+}
+
+/**
+ * Universal OpenAI-compatible chat completion caller that returns RAW TEXT
+ * (no response_format, no JSON.parse). Use for long-form script generation
+ * where the LLM outputs delimited plain text that we parse ourselves.
+ *
+ * Includes the same automatic model fallback chain as callUniversalAi.
+ */
+export async function callUniversalAiRawText({
+  config,
+  systemPrompt,
+  userPrompt,
+  maxTokens = 5000,
+  temperature = 0.72,
+}: {
+  config: AiProviderConfig;
+  systemPrompt: string;
+  userPrompt: string;
+  maxTokens?: number;
+  temperature?: number;
+}): Promise<{ text: string; usedModel: string }> {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${config.apiKey}`,
+    "Content-Type": "application/json",
+  };
+
+  if (config.provider === "openrouter") {
+    headers["HTTP-Referer"] = "https://causalflow.app";
+    headers["X-Title"] = "CausalFlow Documentary Intelligence";
+  }
+
+  const attemptCallRaw = async (
+    modelToUse: string
+  ): Promise<{ text: string; usedModel: string }> => {
+    const body: any = {
+      model: modelToUse,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      temperature,
+      max_tokens: maxTokens,
+    };
+
+    let res: Response;
+    try {
+      res = await fetch(config.endpoint, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      });
+    } catch (netErr: any) {
+      throw {
+        status: 502,
+        errorText: `Network connection error to ${config.endpoint}: ${netErr.message}`,
+        model: modelToUse,
+        isGatewayError: true,
+      };
+    }
+
+    const contentType = (res.headers.get("content-type") || "").toLowerCase();
+    const rawText = await res.text();
+    const isHtml = isHtmlResponse(rawText, contentType);
+    const is502Error =
+      res.status === 502 ||
+      res.status === 503 ||
+      res.status === 504 ||
+      res.status === 520 ||
+      res.status === 521 ||
+      res.status === 522 ||
+      res.status === 524;
+
+    if (!res.ok || isHtml || is502Error) {
+      const summary = isHtml
+        ? extractHtmlErrorSummary(rawText, res.status)
+        : rawText.slice(0, 300);
+
+      throw {
+        status: res.status || 502,
+        errorText: summary,
+        model: modelToUse,
+        isGatewayError: isHtml || is502Error,
+      };
+    }
+
+    // Extract content from the OpenAI-style response
+    let content = rawText;
+    try {
+      const parsed = JSON.parse(rawText);
+      content = parsed?.choices?.[0]?.message?.content || rawText;
+    } catch {
+      // rawText was not JSON — use it directly (shouldn't normally happen)
+    }
+
+    if (!content || content.trim().length === 0) {
+      throw new Error("Empty content returned from model.");
+    }
+
+    return { text: content, usedModel: modelToUse };
+  };
+
+  // Try primary model
+  try {
+    return await attemptCallRaw(config.model);
+  } catch (initialErr: any) {
+    const {
+      status = 500,
+      errorText = initialErr.message || "",
+      model = config.model,
+    } = initialErr;
+    console.warn(
+      `[${config.providerLabel}] Model "${model}" failed (${status}): ${errorText.slice(0, 160)}`
+    );
+
+    const shouldFallback =
+      isGatewayOrDowntimeError(status, errorText) ||
+      isModelDisabledError(status, errorText) ||
+      status === 400 ||
+      status === 404 ||
+      status === 500 ||
+      status === 502 ||
+      status === 503 ||
+      status === 504;
+
+    if (!shouldFallback) {
+      throw new Error(
+        `[${config.providerLabel}] Request failed (${status}): ${errorText.slice(0, 300)}`
+      );
+    }
+
+    // Determine fallback models
+    let fallbackCandidates: string[] = [];
+    if (config.provider === "vyce") {
+      fallbackCandidates = [
+        "gemini-3.1-flash-lite",
+        "claude-haiku-4-5",
+        "nemotron-ultra-550b",
+        "claude-sonnet-4-6",
+        "gpt-5.6-luna",
+        "deepseek-v4.1",
+        "beam-1.0",
+        "agnes-3.0-flash",
+      ].filter((m) => m !== model);
+    } else if (config.provider === "groq") {
+      fallbackCandidates = [
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "mixtral-8x7b-32768",
+      ].filter((m) => m !== model);
+    } else if (config.provider === "gemini") {
+      fallbackCandidates = [
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+      ].filter((m) => m !== model);
+    } else if (config.provider === "openrouter") {
+      fallbackCandidates = [
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "google/gemini-2.0-flash-lite-preview-02-05:free",
+      ].filter((m) => m !== model);
+    }
+
+    if (fallbackCandidates.length === 0) {
+      throw new Error(
+        `[${config.providerLabel}] Request failed (${status}): ${errorText.slice(0, 300)}`
+      );
+    }
+
+    console.log(
+      `[${config.providerLabel}] Initiating raw-text fallback chain across: ${fallbackCandidates.join(", ")}`
+    );
+
+    let lastError = errorText;
+    for (const candidate of fallbackCandidates) {
+      try {
+        console.log(
+          `[${config.providerLabel}] Trying fallback model: ${candidate}...`
+        );
+        const result = await attemptCallRaw(candidate);
+        console.log(
+          `[${config.providerLabel}] ✓ Fallback successful with: ${candidate}`
+        );
+        return result;
+      } catch (fbErr: any) {
+        lastError = fbErr.errorText || fbErr.message || "";
+        console.warn(
+          `[${config.providerLabel}] Fallback candidate "${candidate}" failed: ${lastError.slice(0, 120)}`
+        );
+      }
+    }
+
+    throw new Error(
+      `[${config.providerLabel}] All models in raw-text fallback chain failed. Primary: ${errorText.slice(0, 200)} | Last: ${lastError.slice(0, 200)}`
     );
   }
 }

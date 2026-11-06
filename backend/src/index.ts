@@ -5,11 +5,14 @@ import Parser from "rss-parser";
 import {
   detectAiProvider,
   callUniversalAi,
+  callUniversalAiRawText,
   getAvailableModelsForProvider,
 } from "./aiProvider.js";
 import { generateRssConsensusPitches } from "./fallbackSynthesis.js";
 import { buildVerifiedBriefingPack } from "./articleScraper.js";
 import { JIMAK_WRITING_STYLE_GUIDE } from "./jimakStyleGuide.js";
+import { getActiveApiKey } from "./config/keys.js";
+import { synthesizeJimakFallbackScript } from "./jimakFallback.js";
 
 import { clusterAndScoreHeadlines } from "./clustering.js";
 
@@ -63,9 +66,7 @@ app.get("/api/models", async (req: Request, res: Response) => {
     const rawKey =
       (req.query.apiKey as string) ||
       (req.headers.authorization?.replace(/^Bearer\s+/i, "")) ||
-      process.env.VYCE_API_KEY ||
-      process.env.UNIVERSAL_AI_KEY ||
-      "";
+      getActiveApiKey();
     const providerParam = (req.query.provider as string) || "";
 
     const aiConfig = detectAiProvider({
@@ -480,7 +481,7 @@ app.post("/api/synthesize", async (req: Request, res: Response) => {
       provider = "",
     } = req.body;
 
-    const rawKey = apiKey || groqKey;
+    const rawKey = getActiveApiKey(req.body);
     const aiConfig = detectAiProvider({
       rawKey,
       model,
@@ -698,7 +699,7 @@ app.post("/api/storyline", async (req: Request, res: Response) => {
       });
     }
 
-    const rawKey = apiKey || groqKey;
+    const rawKey = getActiveApiKey(req.body);
     const aiConfig = detectAiProvider({
       rawKey,
       model,
@@ -1042,7 +1043,7 @@ app.post("/api/script", async (req: Request, res: Response) => {
       });
     }
 
-    const rawKey = apiKey || groqKey;
+    const rawKey = getActiveApiKey(req.body);
     const aiConfig = detectAiProvider({
       rawKey,
       model,
@@ -1141,32 +1142,19 @@ STRICT SHORTS RULES (FROM JIMAK STYLE GUIDE):
 STRICT BANS:
 - Output pure, clean, read-aloud voiceover text.
 - NO bullet lists, NO markdown headers (###), NO bold tags (**), NO stage directions, and NO [CAPCUT CUES] inside narration text!
-- Visual B-roll directions and editing cues must be placed strictly inside the "cue" field.
 - Mandatory inline source citations: Append [Source: Outlet Name, Region] whenever stating facts or numbers.
 
-JSON OUTPUT FORMAT:
-{
-  "sections": [
-    {
-      "act": "HOOK & URGENCY",
-      "cue": "Visual directions, dynamic kinetic typography, sound effect",
-      "narration": "Spoken hook and proof of urgency with inline citations [Source: Outlet, Region]",
-      "timestamp": "0:00 – 0:15"
-    },
-    {
-      "act": "THE 3 PILLARS & MECHANISM",
-      "cue": "3-stage animated graphic, sound design riser",
-      "narration": "Three one-sentence points followed by the single-sentence causal mechanism [Source: Outlet, Region]",
-      "timestamp": "0:15 – 0:45"
-    },
-    {
-      "act": "CLOSING QUESTION & CTA",
-      "cue": "Link arrow overlay pointing down, title card",
-      "narration": "Lingering systemic question followed verbatim by: ...you can watch it using the link on this video",
-      "timestamp": "0:45 – 1:00"
-    }
-  ]
-}`;
+OUTPUT FORMAT — Use these exact delimiters (DO NOT OUTPUT JSON):
+===META_START===
+VEHICLE: [Choose: Evidence-Stacking / Investigative Reveal / Comparative Contrast / Case-Study Dissection / Chronological Unravelling / Cost-Benefit Breakdown]
+MECHANISM: [Choose: Feedback Loops / Market Incentives / Time Asymmetry / Structural Mismatch / Inversion / Hidden Costs / Threshold Effects]
+===META_END===
+===VOICEOVER_START===
+[Write the complete ~280-word pure spoken-word script here. No formatting, just flowing spoken paragraphs.]
+===VOICEOVER_END===
+===EVIDENCE_START===
+- [Claim in script] | [Source Outlet] | [Source URL]
+===EVIDENCE_END===`;
 
       userPrompt = `VERIFIED BRIEFING PACK (GROUND-TRUTH EVIDENCE):
 ${briefingPack.briefingPackText}
@@ -1174,20 +1162,20 @@ ${briefingPack.briefingPackText}
 TOPIC: ${sourceData.title}
 SUMMARY: ${sourceData.summary || ""}
 
-Write the complete ~280-word high-retention Shorts voiceover script based on the verified briefing pack above.`;
+Write the complete ~280-word high-retention Shorts voiceover script based on the verified briefing pack above using the exact delimiter blocks.`;
     } else {
-      // Long-form documentary format (~12-15m / 2,000-2,500 words)
+      // Long-form documentary format (~12-15m / 1,800-2,400 words)
       systemPrompt = `${JIMAK_WRITING_STYLE_GUIDE}
 
 ================================================================================
 TASK: WRITE FULL-LENGTH PRODUCTION DOCUMENTARY VOICEOVER (LONG-FORM)
 ================================================================================
 You are Jimak writing for an elite faceless macro-economics and geopolitics documentary channel (Economics Explained tone).
-Write a rich, comprehensive long-form documentary voiceover screenplay (aim for 1,800 to 2,400 words across 5 acts) based strictly on the provided verified briefing pack.
+Write a rich, comprehensive long-form documentary voiceover screenplay (aim for 1,800 to 2,400 words across the chapters) based strictly on the provided verified briefing pack.
 
 STRICT LONG-FORM RULES (FROM JIMAK STYLE GUIDE):
 1. HOOK (First 30 seconds):
-   - Open on a concrete, factual, jarring reality or corrective to the consensus (what everyone is covering vs what they are missing).
+   - Open on a concrete, factual, jarring reality or corrective to the consensus (what everyone is covering vs what they are missing), then scale to the systemic point.
    - NEVER start with "Welcome back", "Let's dive in", or "Today we will explore".
 2. AGENDA (Right after the hook):
    - MUST be an explicit numbered list of 3 to 4 specific questions ONLY, introduced verbatim with:
@@ -1196,7 +1184,7 @@ STRICT LONG-FORM RULES (FROM JIMAK STYLE GUIDE):
      2. [Second specific question?]
      And finally, [Third/Final specific question?]
 3. BODY CHAPTERS:
-   - Each section answers one of the opening questions in order.
+   - Answer each opening question in order.
    - Connect older baseline timeline events to today's breaking update, and trace how high-level geopolitics impacts the everyday life and wallet of the average person.
    - Weave 2 to 4 verified data points with consequences per section.
    - Use "For example," to signpost case studies.
@@ -1204,48 +1192,27 @@ STRICT LONG-FORM RULES (FROM JIMAK STYLE GUIDE):
    - The phrase "And finally" MUST appear verbatim as the spoken transition into the final chapter.
    - Recap the stakes, then end on a systemic question that lingers (no preachy lectures).
    - End with the exact verbatim sign-off: "Thanks for watching today's video and see you in the next"
+5. VOICE & RHYTHM:
+   - Direct, conversational, analytical with dry wit. Sounds like a sharp person explaining something out loud, not an essay.
+   - Prefer flowing sentences joined by commas and semicolons over staccato fragments. Never use fragment runs ("Not in public. Not debated."). Never use editorial hand-wringing ("the scariest part is...", "here's what's worth sitting with").
+   - Use process words ("It becomes a spiral" rather than "It's a spiral"). Use spoken connectors ("For example,", "Now,", "But there's a second pressure...", "or more accurately,").
 
-STRICT BANS & VOICE ENFORCEMENT:
+STRICT BANS:
 - Output pure, clean, read-aloud voiceover paragraphs.
 - Zero [CAPCUT CUES], zero [SCENE START], zero stage directions, zero bold tags (**), zero markdown headers (###) inside voiceover text!
-- Visual B-roll directions, graphics, and sound design must be kept strictly inside the separate "cue" field.
 - Mandatory inline source citations: Append [Source: Outlet Name, Region] whenever stating facts or numbers.
 
-JSON OUTPUT FORMAT:
-{
-  "sections": [
-    {
-      "act": "COLD OPEN & AGENDA",
-      "cue": "Visual B-roll directions, establishing shots, lower-third graphics",
-      "narration": "Spoken hook followed by: So on today's video, we are going to be looking at 3 things: 1. ... 2. ... And finally, 3. ... (350-450 words)",
-      "timestamp": "0:00 – 1:45"
-    },
-    {
-      "act": "CHAPTER 1 // THE ORIGIN & BREAKING CATALYST",
-      "cue": "Split-screen news montage, animated timeline map, audio typewriter sfx",
-      "narration": "Spoken breakdown answering Question 1 with inline citations (400-500 words)",
-      "timestamp": "1:45 – 5:00"
-    },
-    {
-      "act": "CHAPTER 2 // THE GEOPOLITICAL & STRUCTURAL MECHANISM",
-      "cue": "Archival footage filter, 3D supply-chain chokepoint motion graphic, sub-bass riser",
-      "narration": "Spoken deep-dive answering Question 2 with historical precedents (450-550 words)",
-      "timestamp": "5:00 – 9:00"
-    },
-    {
-      "act": "CHAPTER 3 // HOW IT HITS THE AVERAGE PERSON",
-      "cue": "Intimate close-ups: grocery bills, utility meters, purchasing power charts",
-      "narration": "Spoken breakdown answering Question 3 tracing macro chess moves to household budgets (400-500 words)",
-      "timestamp": "9:00 – 12:30"
-    },
-    {
-      "act": "CHAPTER 4 // AND FINALLY: THE VERDICT",
-      "cue": "Cinematic aerial pullback, summary scorecards, ambient synth resolution",
-      "narration": "Begins verbatim with: And finally... Recaps the stakes, leaves a lingering systemic question, and concludes with exact verbatim words: Thanks for watching today's video and see you in the next (350-450 words)",
-      "timestamp": "12:30 – 15:00"
-    }
-  ]
-}`;
+OUTPUT FORMAT — Use these exact delimiters (DO NOT OUTPUT JSON):
+===META_START===
+VEHICLE: [Choose: Evidence-Stacking / Investigative Reveal / Comparative Contrast / Case-Study Dissection / Chronological Unravelling / Cost-Benefit Breakdown]
+MECHANISM: [Choose: Feedback Loops / Market Incentives / Time Asymmetry / Structural Mismatch / Inversion / Hidden Costs / Threshold Effects]
+===META_END===
+===VOICEOVER_START===
+[Write the complete 1,800-2,400 word pure spoken-word documentary script here as flowing read-aloud paragraphs with inline [Source: ...] citations.]
+===VOICEOVER_END===
+===EVIDENCE_START===
+- [Claim in script] | [Source Outlet] | [Source URL]
+===EVIDENCE_END===`;
 
       userPrompt = `VERIFIED BRIEFING PACK (GROUND-TRUTH EVIDENCE):
 ${briefingPack.briefingPackText}
@@ -1255,30 +1222,76 @@ SUBTITLE: ${sourceData.subtitle || sourceData.summary || ""}
 CATEGORY: ${sourceData.category || "Geopolitics & Macroeconomics"}
 REGIONS REPORTING: ${(sourceData.regions || []).join(", ") || "Global"}
 
-Write the full production documentary voiceover screenplay (1,800 to 2,400 words total voiceover) obeying all Jimak style rules and inline citations.`;
+Write the full production documentary voiceover screenplay (1,800 to 2,400 words total voiceover) obeying all Jimak style rules and using the exact delimiter blocks above.`;
     }
 
-    let parsed: any;
-    try {
-      parsed = await callUniversalAi({
-        config: aiConfig,
-        systemPrompt,
-        userPrompt,
-        maxTokens: format === "short" ? 2000 : 5000,
-        temperature: 0.72,
-      });
-    } catch (aiError: any) {
-      console.error(
-        `[CausalFlow Backend] Script generation AI error across models: ${aiError.message}`
-      );
-      return res.status(502).json({
-        success: false,
-        error: "AI_GENERATION_FAILED",
-        message: `Script generation failed across all available AI models: ${aiError.message}`,
-      });
-    }
-
+    // ────────────────────────────────────────────────────────────────────────
+    // SINGLE ACT REGENERATION (still uses JSON output — short response)
+    // ────────────────────────────────────────────────────────────────────────
     if (isSingleActRegen) {
+      const systemPrompt = `${JIMAK_WRITING_STYLE_GUIDE}
+
+================================================================================
+TASK: REGENERATE SINGLE SECTION (ACT INDEX ${targetActIndex})
+================================================================================
+You are Jimak writing for an elite faceless macro-economics and geopolitics documentary channel.
+Rewrite or expand ONLY the targeted section while maintaining seamless continuity with the surrounding sections.
+Strictly adhere to all Jimak style rules:
+- Pure read-aloud voiceover paragraphs.
+- Zero [CAPCUT CUES], zero [SCENE START], zero stage directions, zero bold tags, zero markdown headers inside narration.
+- Mandatory inline source citations: [Source: Outlet Name, Region] for every factual claim.
+- Visual B-roll guidance must go strictly in the "cue" field, NOT in "narration".
+
+JSON OUTPUT FORMAT:
+{
+  "updatedSection": {
+    "act": "Section Title",
+    "cue": "Visual B-roll directions, sound design, graphics",
+    "narration": "Pure spoken voiceover with inline citations",
+    "timestamp": "e.g. 1:30 - 4:00"
+  }
+}`;
+
+      const userPrompt = `BRIEFING PACK (GROUND-TRUTH EVIDENCE):
+${briefingPack.briefingPackText}
+
+EXISTING SECTIONS CONTEXT:
+${(currentSections || [])
+  .map(
+    (s: any, idx: number) =>
+      `Act [${idx + 1}] (${s.act}):\n${(s.narration || "").slice(0, 250)}...`
+  )
+  .join("\n\n")}
+
+REGENERATE ACT [${targetActIndex + 1}] strictly adhering to Jimak's style rules and ground-truth evidence above.`;
+
+      let parsed: any;
+      try {
+        parsed = await callUniversalAi({
+          config: aiConfig,
+          systemPrompt,
+          userPrompt,
+          maxTokens: 3000,
+          temperature: 0.72,
+        });
+      } catch (aiError: any) {
+        console.warn(
+          `[CausalFlow Backend] Single act regen AI error across models (${aiError.message}). Generating from briefing pack...`
+        );
+        const fallback = synthesizeJimakFallbackScript(sourceData, briefingPack, "long");
+        const actData = fallback.sections[targetActIndex] || fallback.sections[0];
+        return res.json({
+          success: true,
+          format,
+          updatedSection: actData,
+          targetActIndex,
+          provider: "CausalFlow Consensus Engine",
+          model: "Jimak Screenplay Engine (Evidence-Backed Fallback)",
+          isFallback: true,
+          regeneratedAt: new Date().toISOString(),
+        });
+      }
+
       const updatedSection =
         parsed.updatedSection || parsed.sections?.[0] || parsed.section || {};
       const cleanedNarration = cleanVoiceoverNarration(
@@ -1300,27 +1313,273 @@ Write the full production documentary voiceover screenplay (1,800 to 2,400 words
       });
     }
 
-    const cleanedSections = (parsed.sections || []).map(
-      (s: any, idx: number) => ({
-        act: s.act || `ACT ${idx + 1}`,
-        cue: s.cue || "",
-        narration: cleanVoiceoverNarration(s.narration || ""),
-        timestamp: s.timestamp || "",
-      })
-    );
+    // Call LLM with RAW TEXT output (no response_format: json_object, no JSON.parse failure!)
+    let rawResult: { text: string; usedModel: string } | null = null;
+    let isFallbackMode = false;
+    let fallbackNotice = "";
 
-    const fullVoiceover = cleanedSections
-      .map((s: any) => s.narration)
+    try {
+      rawResult = await callUniversalAiRawText({
+        config: aiConfig,
+        systemPrompt,
+        userPrompt,
+        maxTokens: format === "short" ? 2200 : 5500,
+        temperature: 0.72,
+      });
+    } catch (aiError: any) {
+      console.warn(
+        `[CausalFlow Backend] All AI models failed or returned gateway errors (${aiError.message}). Compiling Jimak screenplay from verified briefing pack...`
+      );
+      isFallbackMode = true;
+      fallbackNotice = "Notice: Upstream AI gateway is busy. Screenplay compiled from verified multi-outlet briefing pack.";
+    }
+
+    if (isFallbackMode || !rawResult) {
+      const fallbackScript = synthesizeJimakFallbackScript(
+        sourceData,
+        briefingPack,
+        format
+      );
+
+      return res.json({
+        success: true,
+        format,
+        count: fallbackScript.sections.length,
+        pitchId: sourceData.id || "documentary-script",
+        sections: fallbackScript.sections,
+        fullVoiceover: fallbackScript.fullVoiceover,
+        meta: {
+          vehicle: fallbackScript.vehicle,
+          mechanism: fallbackScript.mechanism,
+        },
+        evidence: fallbackScript.evidence,
+        briefingPack: {
+          topic: briefingPack.topic,
+          consensusBadge: briefingPack.consensusBadge,
+          scrapedCount: briefingPack.scrapedArticles.length,
+          timelineCount: briefingPack.backgroundTimeline.length,
+          articles: briefingPack.scrapedArticles.map((a: any) => ({
+            title: a.title,
+            source: a.source,
+            url: a.url,
+            region: a.region,
+            pubDate: a.pubDate,
+            paragraphsCount: (a.paragraphs || []).length,
+            snippet: a.paragraphs?.[0] || "",
+          })),
+          backgroundTimeline: briefingPack.backgroundTimeline,
+          briefingPackText: briefingPack.briefingPackText,
+        },
+        verifiedSources: [
+          ...briefingPack.scrapedArticles.map((a: any) => ({
+            title: a.title,
+            source: a.source,
+            link: a.url,
+            region: a.region,
+          })),
+          ...fallbackScript.evidence
+            .filter((e) => e.url && e.source)
+            .map((e) => ({
+              title: e.claim.slice(0, 80),
+              source: e.source,
+              link: e.url,
+              region: "Cited in Script",
+            })),
+        ],
+        provider: "CausalFlow Consensus Engine",
+        model: "Jimak Screenplay Engine (Evidence-Backed Fallback)",
+        isFallback: true,
+        notice: fallbackNotice,
+        generatedAt: new Date().toISOString(),
+      });
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // PARSE DELIMITER-BASED OUTPUT
+    // ────────────────────────────────────────────────────────────────────────
+    const rawOutput = rawResult.text;
+
+    // 1. Extract META
+    let vehicle = "Investigative Reveal";
+    let mechanism = "Structural Mismatch & Feedback Loops";
+    const metaMatch = rawOutput.match(/===META_START===([\s\S]*?)===META_END===/i);
+    if (metaMatch) {
+      const metaBlock = metaMatch[1];
+      const vehicleMatch = metaBlock.match(/VEHICLE:\s*(.+)/i);
+      const mechMatch = metaBlock.match(/MECHANISM:\s*(.+)/i);
+      if (vehicleMatch) vehicle = vehicleMatch[1].trim();
+      if (mechMatch) mechanism = mechMatch[1].trim();
+    }
+
+    // 2. Extract VOICEOVER
+    let voiceoverText = "";
+    const voiceMatch = rawOutput.match(
+      /===VOICEOVER_START===([\s\S]*?)===VOICEOVER_END===/i
+    );
+    if (voiceMatch) {
+      voiceoverText = voiceMatch[1].trim();
+    } else {
+      // Fallback: strip META and EVIDENCE if closing tags were slightly varied
+      let cleaned = rawOutput.replace(/===META_START===[\s\S]*?===META_END===/i, "");
+      cleaned = cleaned.replace(/===EVIDENCE_START===[\s\S]*/i, "");
+      cleaned = cleaned.replace(/===VOICEOVER_START===/i, "").replace(/===VOICEOVER_END===/i, "");
+      voiceoverText = cleaned.trim();
+    }
+
+    voiceoverText = cleanVoiceoverNarration(voiceoverText);
+
+    // 3. Extract EVIDENCE
+    const evidenceLines: { claim: string; source: string; url: string }[] = [];
+    const evidenceMatch = rawOutput.match(
+      /===EVIDENCE_START===([\s\S]*?)===EVIDENCE_END===/i
+    );
+    if (evidenceMatch) {
+      const lines = evidenceMatch[1]
+        .trim()
+        .split("\n")
+        .filter((l) => l.trim().startsWith("-"));
+      for (const line of lines) {
+        const parts = line.replace(/^-\s*/, "").split("|").map((s) => s.trim());
+        if (parts[0]) {
+          evidenceLines.push({
+            claim: parts[0] || "",
+            source: parts[1] || "Verified Wire",
+            url: parts[2] || "",
+          });
+        }
+      }
+    }
+
+    // 4. Split voiceover text into acts for the frontend ScriptStudio
+    let sections: { act: string; cue: string; narration: string; timestamp: string }[] = [];
+
+    if (format === "short") {
+      const paragraphs = voiceoverText
+        .split(/\n\n+/)
+        .map((p) => p.trim())
+        .filter((p) => p.length > 20);
+
+      if (paragraphs.length >= 3) {
+        const p1 = paragraphs.slice(0, Math.max(1, Math.floor(paragraphs.length * 0.35))).join("\n\n");
+        const p2 = paragraphs.slice(Math.max(1, Math.floor(paragraphs.length * 0.35)), Math.max(2, Math.floor(paragraphs.length * 0.75))).join("\n\n");
+        const p3 = paragraphs.slice(Math.max(2, Math.floor(paragraphs.length * 0.75))).join("\n\n");
+
+        sections = [
+          {
+            act: "HOOK & URGENCY",
+            cue: "Dynamic kinetic typography, sound design hit, headline flash",
+            narration: p1,
+            timestamp: "0:00 – 0:15",
+          },
+          {
+            act: "THE 3 PILLARS & MECHANISM",
+            cue: "3-stage animated graphic, sound design riser, map highlight",
+            narration: p2,
+            timestamp: "0:15 – 0:45",
+          },
+          {
+            act: "CLOSING QUESTION & CTA",
+            cue: "Link arrow overlay pointing down, title card animation",
+            narration: p3,
+            timestamp: "0:45 – 1:00",
+          },
+        ];
+      } else {
+        sections = [
+          {
+            act: "SHORTS SCREENPLAY (~60s)",
+            cue: "Dynamic kinetic typography, sound design, link arrow overlay",
+            narration: voiceoverText,
+            timestamp: "0:00 – 1:00",
+          },
+        ];
+      }
+    } else {
+      // Long-form: split into 5 acts
+      const paragraphs = voiceoverText
+        .split(/\n\n+/)
+        .map((p) => p.trim())
+        .filter((p) => p.length > 20);
+
+      const actNames = [
+        "COLD OPEN & AGENDA",
+        "CHAPTER 1 // THE ORIGIN & BREAKING CATALYST",
+        "CHAPTER 2 // THE GEOPOLITICAL & STRUCTURAL MECHANISM",
+        "CHAPTER 3 // HOW IT HITS THE AVERAGE PERSON",
+        "CHAPTER 4 // AND FINALLY: THE VERDICT",
+      ];
+      const actCues = [
+        "Establishing drone shots, global news montage, lower-third graphics, tension riser",
+        "Split-screen news broadcast montage, animated timeline map, audio typewriter SFX",
+        "Archival footage grain, 3D supply-chain chokepoint motion graphic, sub-bass riser",
+        "Intimate ground-level footage: grocery receipts, power meters, purchasing power charts",
+        "Cinematic aerial pullback, summary scorecards, ambient synth resolution",
+      ];
+      const actTimestamps = [
+        "0:00 – 1:45",
+        "1:45 – 5:00",
+        "5:00 – 9:00",
+        "9:00 – 12:30",
+        "12:30 – 15:00",
+      ];
+
+      if (paragraphs.length >= 5) {
+        const weights = [0.16, 0.21, 0.23, 0.21, 0.19];
+        const total = paragraphs.length;
+        let cursor = 0;
+        for (let i = 0; i < 5; i++) {
+          const count =
+            i === 4
+              ? total - cursor
+              : Math.max(1, Math.round(total * weights[i]));
+          const slice = paragraphs.slice(cursor, cursor + count);
+          sections.push({
+            act: actNames[i],
+            cue: actCues[i],
+            narration: slice.join("\n\n"),
+            timestamp: actTimestamps[i],
+          });
+          cursor += count;
+        }
+      } else if (paragraphs.length > 0) {
+        const numActs = Math.min(paragraphs.length, 5);
+        for (let i = 0; i < numActs; i++) {
+          sections.push({
+            act: actNames[i] || `CHAPTER ${i + 1}`,
+            cue: actCues[i] || "Cinematic visuals",
+            narration: paragraphs[i],
+            timestamp: actTimestamps[i] || "",
+          });
+        }
+      } else {
+        sections = [
+          {
+            act: "FULL DOCUMENTARY VOICEOVER",
+            cue: "Cinematic establishing shots and documentary narrative visual flow",
+            narration: voiceoverText,
+            timestamp: "0:00 – 15:00",
+          },
+        ];
+      }
+    }
+
+    const fullVoiceover = sections
+      .map((s) => s.narration)
       .filter(Boolean)
       .join("\n\n");
 
     return res.json({
       success: true,
       format,
-      count: cleanedSections.length,
+      count: sections.length,
       pitchId: sourceData.id || "documentary-script",
-      sections: cleanedSections,
+      sections,
       fullVoiceover,
+      meta: {
+        vehicle,
+        mechanism,
+      },
+      evidence: evidenceLines,
       briefingPack: {
         topic: briefingPack.topic,
         consensusBadge: briefingPack.consensusBadge,
@@ -1338,14 +1597,24 @@ Write the full production documentary voiceover screenplay (1,800 to 2,400 words
         backgroundTimeline: briefingPack.backgroundTimeline,
         briefingPackText: briefingPack.briefingPackText,
       },
-      verifiedSources: briefingPack.scrapedArticles.map((a: any) => ({
-        title: a.title,
-        source: a.source,
-        link: a.url,
-        region: a.region,
-      })),
+      verifiedSources: [
+        ...briefingPack.scrapedArticles.map((a: any) => ({
+          title: a.title,
+          source: a.source,
+          link: a.url,
+          region: a.region,
+        })),
+        ...evidenceLines
+          .filter((e) => e.url && e.source)
+          .map((e) => ({
+            title: e.claim.slice(0, 80),
+            source: e.source,
+            link: e.url,
+            region: "Cited in Script",
+          })),
+      ],
       provider: aiConfig.providerLabel,
-      model: parsed._usedModel || aiConfig.model,
+      model: rawResult.usedModel,
       generatedAt: new Date().toISOString(),
     });
   } catch (error: any) {

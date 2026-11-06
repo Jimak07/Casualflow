@@ -74,11 +74,11 @@ export async function scrapeArticleBody(
     return { fullText: "", paragraphs: [], sourceUrl: url || "" };
   }
 
-  // 1. Try Jina Reader API first (8-second timeout)
+  // 1. Try Jina Reader API first (strict 5-second timeout per URL)
   try {
     const jinaUrl = `https://r.jina.ai/${url}`;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
 
     const res = await fetch(jinaUrl, {
       headers: {
@@ -113,10 +113,10 @@ export async function scrapeArticleBody(
     // Gracefully fallback to direct Cheerio scrape
   }
 
-  // 2. Fallback: Direct HTML fetch + Cheerio <p> tag extraction
+  // 2. Fallback: Direct HTML fetch + Cheerio <p> tag extraction (strict 5-second timeout)
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
 
     const res = await fetch(url, {
       headers: {

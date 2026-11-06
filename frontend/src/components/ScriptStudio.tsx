@@ -65,6 +65,7 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
   const [isBriefingPackOpen, setIsBriefingPackOpen] = useState(true);
   const [showRawBriefingText, setShowRawBriefingText] = useState(false);
   const [storylineMap, setStorylineMap] = useState<StorylineMap | null>(null);
+  const [scriptMeta, setScriptMeta] = useState<{ vehicle?: string; mechanism?: string } | null>(null);
   const [isStorylineMapExpanded, setIsStorylineMapExpanded] = useState(true);
   const [copyStatus, setCopyStatus] = useState<"idle" | "clean" | "all" | "saved">("idle");
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -317,6 +318,10 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
           `causalflow_briefing_${selectedStory.id}`,
           JSON.stringify(data.briefingPack)
         );
+      }
+
+      if (data.meta) {
+        setScriptMeta(data.meta);
       }
 
       const generatedSections: ScriptSection[] = (data.sections || []).map(
@@ -580,6 +585,13 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
               <FileText className="w-3.5 h-3.5 text-slate-400" />
               <span>{totalWords} words</span>
             </span>
+            {scriptMeta && (
+              <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono bg-blue-50/70 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-500/20">
+                <span>🚀 {scriptMeta.vehicle}</span>
+                <span>•</span>
+                <span>⚙️ {scriptMeta.mechanism}</span>
+              </span>
+            )}
           </div>
 
           {/* Quick Utility Actions: Library, Teleprompter, Export */}
