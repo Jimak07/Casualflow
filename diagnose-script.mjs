@@ -95,9 +95,101 @@ for (const modelId of discoveredModels) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PART 3: TEST POST /api/briefing (INSTANT FACTUAL SHEET & SCRAPED ARTICLES)
+// PART 3: TEST GET /api/radar & 24 DOCUMENTARY SECTIONS CLUSTERING
 // ─────────────────────────────────────────────────────────────────────────────
-console.log("\n[STEP 3: LIVE VERIFICATION OF POST /api/briefing]");
+console.log("\n[STEP 3: LIVE VERIFICATION OF /api/radar ACROSS 24 DOCUMENTARY SECTIONS]");
+
+let radarClusters = [];
+try {
+  const radarRes = await fetch("http://localhost:8000/api/radar");
+  console.log(`- GET http://localhost:8000/api/radar Status: ${radarRes.status}`);
+  if (radarRes.ok) {
+    const radarData = await radarRes.json();
+    radarClusters = radarData.clusters || [];
+    console.log(`✓ Fetched ${radarClusters.length} live clustered events.`);
+
+    // Group by section
+    const sectionCounts = {};
+    for (const c of radarClusters) {
+      const key = c.categoryKey || "unknown";
+      sectionCounts[key] = (sectionCounts[key] || 0) + 1;
+    }
+
+    console.log(`- Classified Sections Breakdown (${Object.keys(sectionCounts).length} active sections):`);
+    Object.entries(sectionCounts).slice(0, 8).forEach(([sec, cnt]) => {
+      console.log(`   • ${sec}: ${cnt} stories`);
+    });
+
+    // Check cluster requirements on top story
+    if (radarClusters.length > 0) {
+      const sample = radarClusters[0];
+      console.log(`\n- Sample #1 Clustered Event Verification:`);
+      console.log(`   • Title: "${sample.title}"`);
+      console.log(`   • Category Key: ${sample.categoryKey} (${sample.categoryLabel})`);
+      console.log(`   • Popularity Score: ${sample.popularityScore}% (${sample.outlets?.length} Outlets)`);
+      console.log(`   • Importance Score: ${sample.importanceScore}% (${sample.tierGrade || sample.importanceGrade})`);
+      console.log(`   • Consensus Badge: ${sample.consensusBadge}`);
+      console.log(`   • Key Points Summary (3 Factual Bullets):`);
+      (sample.keyPointsSummary || []).forEach((kp, idx) => console.log(`      ${idx + 1}. ${kp}`));
+    }
+  }
+} catch (e) {
+  console.log(`Note on /api/radar: ${e.message}`);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PART 4: TEST POST /api/summary-text (GLOBAL MASTER & PER-SECTION .TXT GENERATOR)
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\n[STEP 4: LIVE VERIFICATION OF POST /api/summary-text (.TXT COMPILED FORMAT)]");
+
+try {
+  // Test Global Master Summary
+  const globalSummaryRes = await fetch("http://localhost:8000/api/summary-text", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      scope: "ALL 24 SECTIONS",
+      sortMode: "Weighted Importance (Impact)",
+      clusters: radarClusters.slice(0, 20),
+    }),
+  });
+
+  if (globalSummaryRes.ok) {
+    const globalData = await globalSummaryRes.json();
+    console.log(`✓ Global Master Summary generated successfully:`);
+    console.log(`   • Filename: ${globalData.filename}`);
+    console.log(`   • Total Characters: ${globalData.summaryText?.length}`);
+    const previewLines = globalData.summaryText.split("\n").slice(0, 16).join("\n");
+    console.log(`--- PREVIEW OF DOWNLOADED .TXT FILE ---`);
+    console.log(previewLines);
+    console.log(`----------------------------------------`);
+  } else {
+    console.log(`⚠️ Summary error: ${await globalSummaryRes.text()}`);
+  }
+
+  // Test Single Section Summary
+  const secSummaryRes = await fetch("http://localhost:8000/api/summary-text", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      scope: "Energy, Oil, Gas & Power Grids",
+      sortMode: "Weighted Importance (Impact)",
+      clusters: radarClusters,
+    }),
+  });
+
+  if (secSummaryRes.ok) {
+    const secData = await secSummaryRes.json();
+    console.log(`✓ Single Section Summary generated successfully (${secData.filename})`);
+  }
+} catch (e) {
+  console.log(`Note on /api/summary-text: ${e.message}`);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PART 5: TEST POST /api/briefing (INSTANT FACTUAL SHEET & SCRAPED ARTICLES)
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\n[STEP 5: LIVE VERIFICATION OF POST /api/briefing]");
 
 const paraguayCluster = {
   id: "cluster-paraguay-impeachment",
@@ -159,9 +251,9 @@ try {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PART 4: END-TO-END POST /api/script FOR PARAGUAY STORY
+// PART 6: END-TO-END POST /api/script FOR PARAGUAY STORY
 // ─────────────────────────────────────────────────────────────────────────────
-console.log("\n[STEP 4: LIVE END-TO-END SCREENPLAY GENERATION FOR PARAGUAY CLUSTER]");
+console.log("\n[STEP 6: LIVE END-TO-END SCREENPLAY GENERATION FOR PARAGUAY CLUSTER]");
 
 console.log(`- Sending POST http://localhost:8000/api/script...`);
 const scriptStart = Date.now();

@@ -3,89 +3,33 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Navbar } from "@/components/Navbar";
 import { NewsSearchEngineBar } from "@/components/NewsSearchEngineBar";
-import { IntelligenceNewsCard } from "@/components/IntelligenceNewsCard";
+import { SectionPreviewCard } from "@/components/SectionPreviewCard";
 import { StorySkeletonCard } from "@/components/StorySkeletonCard";
 import { FullPageReaderView } from "@/components/FullPageReaderView";
+import { CompiledSummarySheetModal } from "@/components/CompiledSummarySheetModal";
 import { ApiKeysModal } from "@/components/ApiKeysModal";
 import {
   ClusteredNewsEvent,
   BriefingPackData,
   SavedScriptEntry,
   SortMode,
-  ApiKeysConfig,
-  EventCategoryKey,
+  EventCategoryMeta,
+  EVENT_CATEGORIES,
 } from "@/types";
 import { API_ENDPOINTS } from "@/lib/api";
 import {
+  generateCompiledSummaryText,
+  downloadSummaryTextFile,
+} from "@/lib/summaryGenerator";
+import {
   Sparkles,
-  ArrowRight,
   AlertCircle,
   X,
   CheckCircle2,
   Radio,
-  Globe,
-  ShieldAlert,
-  TrendingUp,
-  Zap,
-  Cpu,
-  RefreshCw,
-  BookOpen,
+  FileText,
+  Download,
 } from "lucide-react";
-
-const SECTIONS_CONFIG: {
-  key: EventCategoryKey;
-  title: string;
-  icon: React.ComponentType<{ className?: string }>;
-  accentColor: string;
-  badgeClass: string;
-  description: string;
-}[] = [
-  {
-    key: "insecurity-wars",
-    title: "1. Insecurity, Wars & Armed Conflicts",
-    icon: ShieldAlert,
-    accentColor: "text-red-400",
-    badgeClass: "bg-red-500/10 text-red-400 border-red-500/20",
-    description:
-      "Active kinetic warfare, military strikes, missile defenses, insurgencies, and armed troop deployments.",
-  },
-  {
-    key: "financials-markets",
-    title: "2. Financials, Markets & Macro Economy",
-    icon: TrendingUp,
-    accentColor: "text-emerald-400",
-    badgeClass: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-    description:
-      "Equities, bond yields, central bank rate decisions, debt cycles, inflation, and bank contagion.",
-  },
-  {
-    key: "geopolitics-diplomacy",
-    title: "3. Geopolitics, Diplomacy & Trade Chokepoints",
-    icon: Globe,
-    accentColor: "text-blue-400",
-    badgeClass: "bg-blue-500/10 text-blue-400 border-blue-500/20",
-    description:
-      "International treaties, diplomatic summits, bilateral sanctions, maritime chokepoints, and trade tariffs.",
-  },
-  {
-    key: "energy-commodities",
-    title: "4. Energy, Commodities & Cost of Living",
-    icon: Zap,
-    accentColor: "text-amber-400",
-    badgeClass: "bg-amber-500/10 text-amber-400 border-amber-500/20",
-    description:
-      "Crude oil, natural gas, agriculture, critical minerals, electricity grids, and household cost of living.",
-  },
-  {
-    key: "tech-health",
-    title: "5. Tech, AI & Global Health Crises",
-    icon: Cpu,
-    accentColor: "text-purple-400",
-    badgeClass: "bg-purple-500/10 text-purple-400 border-purple-500/20",
-    description:
-      "Artificial intelligence, semiconductor supply chains, cybersecurity breaches, and global health outbreaks.",
-  },
-];
 
 export default function Home() {
   const [isDarkMode, setIsDarkMode] = useState<boolean>(true);
@@ -98,7 +42,7 @@ export default function Home() {
   const [clusters, setClusters] = useState<ClusteredNewsEvent[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [activeCategory, setActiveCategory] = useState<string>("all");
-  const [sortMode, setSortMode] = useState<SortMode>("popularity");
+  const [sortMode, setSortMode] = useState<SortMode>("importance");
   const [isScanning, setIsScanning] = useState(false);
 
   // Reader View State
@@ -109,6 +53,11 @@ export default function Home() {
   const [generationStep, setGenerationStep] = useState<string>("");
   const [scriptModel, setScriptModel] = useState<string>("gpt-5.6-sol");
   const [scriptProvider, setScriptProvider] = useState<string>("AgentRouter");
+
+  // Summary Sheet Modal State
+  const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
+  const [summaryScope, setSummaryScope] = useState<string>("ALL 24 SECTIONS");
+  const [summarySectionMetas, setSummarySectionMetas] = useState<EventCategoryMeta[]>(EVENT_CATEGORIES);
 
   // Toast
   const [toastMessage, setToastMessage] = useState<{
@@ -126,20 +75,6 @@ export default function Home() {
     },
     []
   );
-
-  // Helper to trigger browser file download
-  const downloadFile = (content: string, filename: string, mimeType = "text/plain;charset=utf-8") => {
-    if (typeof window === "undefined" || !content) return;
-    const blob = new Blob([content], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
 
   // Helper to save script entry to localStorage library
   const saveToLibrary = useCallback(
@@ -295,16 +230,13 @@ export default function Home() {
   // Search
   const handleSearch = (query: string) => {
     setSearchQuery(query);
-    if (query.trim()) {
-      setSortMode("relevance");
-    }
     fetchRadar(query);
   };
 
   // Refresh Today
   const handleRefreshToday = () => {
     setSearchQuery("");
-    setSortMode("popularity");
+    setSortMode("importance");
     setActiveCategory("all");
     fetchRadar("");
   };
@@ -349,160 +281,147 @@ export default function Home() {
         }
 
         case "latest":
-          return (b.recencyScore ?? 0) - (a.recencyScore ?? 0);
-
-        case "relevance":
-          if (searchQuery.trim()) {
-            const q = searchQuery.toLowerCase();
-            const aMatches =
-              a.title.toLowerCase().includes(q) || a.summary.toLowerCase().includes(q);
-            const bMatches =
-              b.title.toLowerCase().includes(q) || b.summary.toLowerCase().includes(q);
-            if (aMatches && !bMatches) return -1;
-            if (!aMatches && bMatches) return 1;
-          }
-          return (
-            (b.popularityScore ?? b.consensusScore * 10) -
-            (a.popularityScore ?? a.consensusScore * 10)
-          );
-
         default:
-          return (
-            (b.popularityScore ?? b.consensusScore * 10) -
-            (a.popularityScore ?? a.consensusScore * 10)
-          );
+          return (b.recencyScore ?? 0) - (a.recencyScore ?? 0);
       }
     });
 
     return result;
   }, [clusters, searchQuery, sortMode]);
 
-  // Group filtered clusters into the 5 sections
+  // Map 24 Sections with their filtered clusters
   const categorizedSections = useMemo(() => {
-    return SECTIONS_CONFIG.map((sec) => {
-      const secClusters = filteredAndSortedClusters.filter((c) => {
-        if (c.categoryKey) {
-          return c.categoryKey === sec.key;
-        }
-        // Fallback matching by primaryNiche
-        if (sec.key === "insecurity-wars") return c.primaryNiche === "wars-conflicts";
-        if (sec.key === "financials-markets") return c.primaryNiche === "macro-trade";
-        if (sec.key === "tech-health") return c.primaryNiche === "ai-tech" || c.primaryNiche === "outbreaks-health";
-        return true;
-      });
+    const map = new Map<string, ClusteredNewsEvent[]>();
 
-      return {
-        ...sec,
-        clusters: secClusters,
-      };
-    });
+    for (const cluster of filteredAndSortedClusters) {
+      const key = cluster.categoryKey || "world";
+      if (!map.has(key)) {
+        map.set(key, []);
+      }
+      map.get(key)!.push(cluster);
+    }
+
+    return EVENT_CATEGORIES.map((cat) => ({
+      ...cat,
+      clusters: map.get(cat.key) || [],
+    }));
   }, [filteredAndSortedClusters]);
 
-  // ACTION 1: Read Full News Briefing
-  const handleReadBriefing = async (cluster: ClusteredNewsEvent) => {
+  // Global Master Summary Sheet Action (Requirement 2)
+  const handleOpenAllSummaries = () => {
+    setSummaryScope("ALL 24 SECTIONS");
+    setSummarySectionMetas(EVENT_CATEGORIES);
+    setIsSummaryModalOpen(true);
+  };
+
+  // Global Master .TXT Download Action (Requirement 2)
+  const handleDownloadAllSummaries = () => {
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const filename = `causalflow-all-sections-summary-${dateStr}.txt`;
+    const text = generateCompiledSummaryText({
+      scope: "ALL 24 SECTIONS",
+      sortMode:
+        sortMode === "importance"
+          ? "Weighted Importance (Impact)"
+          : "Popularity (Consensus)",
+      events: filteredAndSortedClusters,
+      sectionMetas: EVENT_CATEGORIES,
+    });
+    downloadSummaryTextFile(text, filename);
+    showToast("✓ Downloaded Master Summary across all 24 sections (.TXT)!", "success");
+  };
+
+  // Section Summary Action from Section Card
+  const handleOpenSectionSummary = (meta: EventCategoryMeta) => {
+    setSummaryScope(meta.label);
+    setSummarySectionMetas([meta]);
+    setIsSummaryModalOpen(true);
+  };
+
+  // Section .TXT Download Action from Section Card
+  const handleDownloadSectionTxt = (meta: EventCategoryMeta) => {
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const filename = `causalflow-${meta.key}-summary-${dateStr}.txt`;
+    const secClusters = filteredAndSortedClusters.filter((c) => c.categoryKey === meta.key);
+    const text = generateCompiledSummaryText({
+      scope: meta.label,
+      sortMode:
+        sortMode === "importance"
+          ? "Weighted Importance (Impact)"
+          : "Popularity (Consensus)",
+      events: secClusters,
+      sectionMetas: [meta],
+    });
+    downloadSummaryTextFile(text, filename);
+    showToast(`✓ Downloaded ${meta.shortLabel} summary (.TXT)!`, "success");
+  };
+
+  // ACTION 1: Read Briefing Handler
+  const handleSelectClusterForBriefing = async (cluster: ClusteredNewsEvent) => {
     setSelectedCluster(cluster);
     setCurrentView("reader");
     setReaderTab("briefing");
+    setScriptText("");
 
-    // Check cached briefing
-    if (typeof window !== "undefined") {
-      const cached = localStorage.getItem(`causalflow_briefing_${cluster.id}`);
-      if (cached) {
-        try {
-          setBriefingPack(JSON.parse(cached));
-        } catch {}
-      }
-
-      const cachedScript = localStorage.getItem(`causalflow_script_text_${cluster.id}`);
-      if (cachedScript) {
-        setScriptText(cachedScript);
-      } else {
-        setScriptText("");
-      }
-    }
-
-    // Fetch full news briefing from /api/briefing
     try {
       const res = await fetch(API_ENDPOINTS.briefing, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cluster }),
       });
-      const data = await res.json();
-      if (data && data.success) {
+      if (res.ok) {
+        const data = await res.json();
         setBriefingPack(data);
-        if (typeof window !== "undefined") {
-          localStorage.setItem(`causalflow_briefing_${cluster.id}`, JSON.stringify(data));
-        }
       }
-    } catch (err) {
-      console.error("Briefing pack fetch error:", err);
+    } catch (e: any) {
+      console.error("Briefing error:", e);
     }
   };
 
-  // ACTION 2: Generate Pure Script
-  const handleGenerateScript = async (cluster: ClusteredNewsEvent) => {
+  // ACTION 2: Generate Pure Script Handler
+  const handleSelectClusterForScript = (cluster: ClusteredNewsEvent) => {
     setSelectedCluster(cluster);
     setCurrentView("reader");
     setReaderTab("script");
-    setIsGeneratingScript(true);
-    setGenerationStep("Gathering full-text article bodies and briefing pack...");
+    handleGenerateScript(cluster);
+  };
 
-    let apiKey = "";
-    let model = "";
-    let provider = "";
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("causalflow_api_keys");
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          apiKey = parsed.apiKey || parsed.groqKey || "";
-          model = parsed.model || "";
-          provider = parsed.provider || "";
-        } catch {}
-      }
-    }
+  const handleGenerateScript = async (cluster: ClusteredNewsEvent) => {
+    setIsGeneratingScript(true);
+    setGenerationStep("Gathering verified dispatches & running AgentRouter gpt-5.6-sol...");
 
     try {
-      setGenerationStep("Writing continuous Jimak documentary voiceover with AgentRouter...");
       const res = await fetch(API_ENDPOINTS.script, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           cluster,
+          pitch: cluster,
           format: "long",
-          apiKey,
-          model,
-          provider,
+          model: "gpt-5.6-sol",
         }),
       });
 
       const data = await res.json();
 
-      if (data && data.success && data.scriptText) {
-        const pureScript = data.scriptText;
+      if (data.success) {
+        const pureScript =
+          data.scriptText ||
+          (data.sections || []).map((s: any) => s.narration).join("\n\n") ||
+          "";
+
         setScriptText(pureScript);
         setScriptModel(data.model || "gpt-5.6-sol");
         setScriptProvider(data.provider || "AgentRouter");
 
         if (data.briefingPack) {
           setBriefingPack(data.briefingPack);
-          if (typeof window !== "undefined") {
-            localStorage.setItem(
-              `causalflow_briefing_${cluster.id}`,
-              JSON.stringify(data.briefingPack)
-            );
-          }
-        }
-
-        if (typeof window !== "undefined") {
-          localStorage.setItem(`causalflow_script_text_${cluster.id}`, pureScript);
         }
 
         // Save to device library
         saveToLibrary(cluster, pureScript, data.wordCount, data.briefingPack);
 
-        // Direct device file save: Auto-Download like Ubuntu (Step 4)
+        // Auto-Download script text
         if (typeof window !== "undefined") {
           const autoDownload = localStorage.getItem("causalflow_auto_download");
           if (autoDownload !== "false") {
@@ -514,10 +433,10 @@ export default function Home() {
               .replace(/^-|-$/g, "");
             const dateStr = new Date().toISOString().slice(0, 10);
             const filename = `${slug}-${dateStr}-jimak-script.txt`;
-            downloadFile(pureScript, filename, "text/plain;charset=utf-8");
+            downloadSummaryTextFile(pureScript, filename);
             showToast("✓ Generated & downloaded script directly to device!", "success");
           } else {
-            showToast("✓ Jimak Screenplay generated successfully!", "success");
+            showToast("✓ Screenplay generated successfully!", "success");
           }
         }
       } else {
@@ -535,7 +454,7 @@ export default function Home() {
     }
   };
 
-  // ACTION 3: Fix Saved History "Load" Button (Step 3)
+  // ACTION 3: Saved History "Load" Button
   const handleLoadSavedScript = (entry: SavedScriptEntry) => {
     const existingCluster = clusters.find(
       (c) => c.id === entry.pitchId || c.title === entry.title
@@ -545,7 +464,7 @@ export default function Home() {
       id: entry.pitchId,
       title: entry.title,
       summary: entry.briefingPack?.articles?.[0]?.snippet || entry.title,
-      categoryKey: "geopolitics-diplomacy",
+      categoryKey: "world",
       categoryLabel: entry.category,
       category: entry.category,
       primaryNiche: "all",
@@ -591,9 +510,7 @@ export default function Home() {
   return (
     <div
       className={`min-h-screen flex flex-col font-sans transition-colors duration-200 ${
-        isDarkMode
-          ? "bg-[#06080F] text-white"
-          : "bg-[#06080F] text-white"
+        isDarkMode ? "bg-[#06080F] text-white" : "bg-[#06080F] text-white"
       }`}
     >
       {/* Toast Notification Banner */}
@@ -618,8 +535,34 @@ export default function Home() {
         </div>
       )}
 
+      {/* Compiled Summary Sheet Modal (Global or Per-Section) */}
+      <CompiledSummarySheetModal
+        isOpen={isSummaryModalOpen}
+        onClose={() => setIsSummaryModalOpen(false)}
+        scope={summaryScope}
+        sortMode={
+          sortMode === "importance"
+            ? "Weighted Importance (Impact)"
+            : "Popularity (Consensus)"
+        }
+        clusters={filteredAndSortedClusters}
+        sectionMetas={summarySectionMetas}
+        onSelectClusterForBriefing={handleSelectClusterForBriefing}
+        onSelectClusterForScript={handleSelectClusterForScript}
+      />
+
+      {/* Settings Modal */}
+      <ApiKeysModal
+        isOpen={isApiKeysOpen}
+        onClose={() => setIsApiKeysOpen(false)}
+        onSaveKeys={() => {
+          setIsApiKeysOpen(false);
+          showToast("Saved API preferences", "success");
+        }}
+      />
+
       {/* ─────────────────────────────────────────────────────────────────────────────
-          VIEW A: FULL-PAGE READER VIEW (STEP 3)
+          VIEW A: FULL-PAGE READER VIEW
       ───────────────────────────────────────────────────────────────────────────── */}
       {currentView === "reader" ? (
         <FullPageReaderView
@@ -637,7 +580,7 @@ export default function Home() {
         />
       ) : (
         /* ─────────────────────────────────────────────────────────────────────────────
-            VIEW B: CATEGORIZED GLOBAL EVENT SUMMARIZER (STEP 2)
+            VIEW B: 24-SECTION GRID WITH 1 PREVIEW HEADLINE EACH (NO ENDLESS SCROLLING)
         ───────────────────────────────────────────────────────────────────────────── */
         <>
           {/* Top Navbar */}
@@ -652,7 +595,7 @@ export default function Home() {
 
           {/* Main Content Container */}
           <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 flex flex-col gap-8">
-            {/* Top Search Bar & Controls */}
+            {/* Top Search Bar & Controls Bar with Master Summarizer (Requirement 2) */}
             <section className="w-full">
               <NewsSearchEngineBar
                 searchQuery={searchQuery}
@@ -665,6 +608,8 @@ export default function Home() {
                 onSelectSortMode={(mode) => setSortMode(mode)}
                 totalClustersCount={clusters.length}
                 filteredClustersCount={filteredAndSortedClusters.length}
+                onOpenAllSummaries={handleOpenAllSummaries}
+                onDownloadAllSummaries={handleDownloadAllSummaries}
               />
             </section>
 
@@ -675,15 +620,14 @@ export default function Home() {
                   <div className="flex items-center gap-2">
                     <Radio className="w-4 h-4 animate-spin text-blue-400" />
                     <span>
-                      Scraping & clustering live feeds across BBC, CNN, Reuters, Al Jazeera, AP, The Hindu, Punch, Bloomberg, SCMP, DW, France24...
+                      Scraping &amp; clustering live feeds across 24 documentary sections from 11 verified news agencies...
                     </span>
                   </div>
                   <span className="font-bold text-emerald-400 animate-pulse">
                     $0 Token RSS Matrix
                   </span>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <StorySkeletonCard />
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   <StorySkeletonCard />
                   <StorySkeletonCard />
                   <StorySkeletonCard />
@@ -706,109 +650,60 @@ export default function Home() {
                   onClick={handleRefreshToday}
                   className="px-5 py-2.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-600/30"
                 >
-                  Reset All Filters & Reload Today
+                  Reset All Filters &amp; Reload Today
                 </button>
               </div>
             )}
 
-            {/* 5 CLEAR CATEGORIZED SECTIONS */}
+            {/* 24-SECTION GRID WITH 1 PREVIEW HEADLINE EACH (REQUIREMENT 2) */}
             {!isScanning && filteredAndSortedClusters.length > 0 && (
-              <div className="space-y-12">
-                {categorizedSections
-                  .filter((sec) => activeCategory === "all" || activeCategory === sec.key)
-                  .map((sec) => {
-                    const Icon = sec.icon;
+              <section className="space-y-6">
+                <div className="flex items-center justify-between pb-3 border-b border-white/10">
+                  <div>
+                    <h2 className="text-lg sm:text-xl font-extrabold text-white tracking-tight">
+                      24 Documentary Intelligence Sections
+                    </h2>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Showing #1 top-ranked preview headline per section. Click any section card to explore all stories.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleOpenAllSummaries}
+                      className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 transition-all"
+                    >
+                      <FileText className="w-3.5 h-3.5 text-blue-400" />
+                      <span>Summary Sheet</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDownloadAllSummaries}
+                      className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white border border-blue-500/30 transition-all"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Download .TXT</span>
+                    </button>
+                  </div>
+                </div>
 
-                    if (sec.clusters.length === 0) {
-                      if (activeCategory === sec.key) {
-                        return (
-                          <div
-                            key={sec.key}
-                            className="p-8 text-center rounded-2xl bg-[#0E131F] border border-white/10"
-                          >
-                            <p className="text-sm text-slate-400">
-                              No stories currently clustered under {sec.title}.
-                            </p>
-                          </div>
-                        );
-                      }
-                      return null;
-                    }
-
-                    return (
-                      <section key={sec.key} className="space-y-4">
-                        {/* Section Header */}
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-white/10">
-                          <div className="flex items-center gap-2.5">
-                            <div className="p-2 rounded-xl bg-[#0E131F] border border-white/10">
-                              <Icon className={`w-5 h-5 ${sec.accentColor}`} />
-                            </div>
-                            <div>
-                              <h2 className="text-lg sm:text-xl font-extrabold text-white tracking-tight">
-                                {sec.title}
-                              </h2>
-                              <p className="text-xs text-slate-400 hidden sm:block">
-                                {sec.description}
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-2 self-start sm:self-auto">
-                            <span
-                              className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold border ${sec.badgeClass}`}
-                            >
-                              {sec.clusters.length} Verified Events
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Cards Grid */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                          {sec.clusters.map((cluster) => (
-                            <IntelligenceNewsCard
-                              key={cluster.id}
-                              cluster={cluster}
-                              sortMode={sortMode}
-                              onReadBriefing={handleReadBriefing}
-                              onGenerateScript={handleGenerateScript}
-                            />
-                          ))}
-                        </div>
-                      </section>
-                    );
-                  })}
-              </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {categorizedSections.map((sec, idx) => (
+                    <SectionPreviewCard
+                      key={sec.key}
+                      sectionIndex={idx}
+                      meta={sec}
+                      clusters={sec.clusters}
+                      onOpenSectionSummary={handleOpenSectionSummary}
+                      onDownloadSectionTxt={handleDownloadSectionTxt}
+                      onSelectClusterForBriefing={handleSelectClusterForBriefing}
+                      onSelectClusterForScript={handleSelectClusterForScript}
+                    />
+                  ))}
+                </div>
+              </section>
             )}
           </main>
-
-          {/* Footer */}
-          <footer className="border-t border-white/10 bg-[#06080F] py-6 px-4 sm:px-6 mt-16">
-            <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-400">
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-white">CausalFlow</span>
-                <span>•</span>
-                <span>Ubuntu-Style News-to-Script Documentary Engine</span>
-              </div>
-
-              <div className="flex items-center gap-4 font-mono text-[11px]">
-                <span className="text-emerald-400 flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  $0 RSS Scraper
-                </span>
-                <span>•</span>
-                <span className="text-blue-400">AgentRouter Engine</span>
-              </div>
-            </div>
-          </footer>
-
-          {/* Settings Modal */}
-          <ApiKeysModal
-            isOpen={isApiKeysOpen}
-            onClose={() => setIsApiKeysOpen(false)}
-            onSaveKeys={(_keys: ApiKeysConfig) => {
-              showToast("✓ AgentRouter API Key saved locally!", "success");
-            }}
-          />
         </>
       )}
     </div>

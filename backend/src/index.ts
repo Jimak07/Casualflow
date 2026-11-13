@@ -13,7 +13,12 @@ import { buildVerifiedBriefingPack } from "./articleScraper.js";
 import { JIMAK_WRITING_STYLE_GUIDE } from "./jimakStyleGuide.js";
 import { getActiveApiKey } from "./config/keys.js";
 
-import { clusterAndScoreHeadlines } from "./clustering.js";
+import {
+  clusterAndScoreHeadlines,
+  EVENT_CATEGORIES,
+  generateCompiledSummaryText,
+  ClusteredNewsEvent,
+} from "./clustering.js";
 
 dotenv.config();
 
@@ -475,6 +480,44 @@ app.get("/api/radar", async (req: Request, res: Response) => {
       error: error.message || "Failed to ingest live feeds",
       clusters: [],
       headlines: [],
+    });
+  }
+});
+
+// 2b. Compiled Documentary Intelligence Summary Sheet Generator (POST /api/summary-text)
+app.post("/api/summary-text", (req: Request, res: Response) => {
+  try {
+    const {
+      scope = "ALL 24 SECTIONS",
+      sortMode = "Weighted Importance (Impact)",
+      clusters = [],
+    } = req.body;
+
+    const summaryText = generateCompiledSummaryText({
+      scope,
+      sortMode,
+      events: clusters,
+      sectionMetas: EVENT_CATEGORIES,
+    });
+
+    const cleanSlug = scope
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "");
+    const filename = `causalflow-${cleanSlug}-summary.txt`;
+
+    res.json({
+      success: true,
+      scope,
+      sortMode,
+      filename,
+      summaryText,
+      totalClusters: clusters.length,
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: error.message || "Failed to compile summary sheet",
     });
   }
 });

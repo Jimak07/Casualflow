@@ -14,6 +14,9 @@ import {
   Activity,
   Cpu,
   TrendingUp,
+  FileText,
+  Download,
+  Sparkles,
 } from "lucide-react";
 import { GeopoliticalNiche, SortMode } from "@/types";
 
@@ -28,6 +31,8 @@ interface NewsSearchEngineBarProps {
   onSelectSortMode: (mode: SortMode) => void;
   totalClustersCount: number;
   filteredClustersCount: number;
+  onOpenAllSummaries?: () => void;
+  onDownloadAllSummaries?: () => void;
 }
 
 const NICHE_TABS: {
@@ -84,6 +89,8 @@ export const NewsSearchEngineBar: React.FC<NewsSearchEngineBarProps> = ({
   onSelectSortMode,
   totalClustersCount,
   filteredClustersCount,
+  onOpenAllSummaries,
+  onDownloadAllSummaries,
 }) => {
   const [localQuery, setLocalQuery] = useState(searchQuery);
 
@@ -212,6 +219,49 @@ export const NewsSearchEngineBar: React.FC<NewsSearchEngineBarProps> = ({
             </span>
           </div>
         </div>
+
+        {/* ROW 2: PROMINENT PRIMARY MASTER SUMMARIZER BUTTONS (REQUIREMENT 2) */}
+        {(onOpenAllSummaries || onDownloadAllSummaries) && (
+          <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 p-3 rounded-2xl bg-gradient-to-r from-blue-950/70 via-[#06080F] to-blue-950/70 border border-blue-500/30 shadow-md shadow-blue-950/20">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl bg-blue-600/20 text-blue-400 shrink-0">
+                <Sparkles className="w-4 h-4" />
+              </div>
+              <div>
+                <span className="text-xs sm:text-sm font-bold text-white block">
+                  Global Master Documentary Summarizer
+                </span>
+                <span className="text-[11px] text-slate-400">
+                  Instant on-screen compiled sheet &amp; 1-click .TXT file across all 24 documentary sections
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+              {onOpenAllSummaries && (
+                <button
+                  type="button"
+                  onClick={onOpenAllSummaries}
+                  className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-white/10 hover:bg-white/15 text-white border border-white/15 transition-all shadow-sm active:scale-95 whitespace-nowrap"
+                >
+                  <FileText className="w-3.5 h-3.5 text-blue-400" />
+                  <span>📋 Click to get summary of all news headlines (All Sections)</span>
+                </button>
+              )}
+
+              {onDownloadAllSummaries && (
+                <button
+                  type="button"
+                  onClick={onDownloadAllSummaries}
+                  className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-600/30 transition-all active:scale-95 whitespace-nowrap"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>💾 Download All Summaries (.TXT)</span>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* ROW 2: GEOPOLITICAL NICHE TABS (SINGLE-NICHE SCOPE FILTERS) */}
         <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto scrollbar-none py-0.5">

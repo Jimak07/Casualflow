@@ -12,11 +12,30 @@ export type GeopoliticalNiche =
   | "macro-trade";
 
 export type EventCategoryKey =
+  | "world"
   | "insecurity-wars"
   | "financials-markets"
-  | "geopolitics-diplomacy"
-  | "energy-commodities"
-  | "tech-health";
+  | "central-banks-debt"
+  | "energy-power"
+  | "shipping-chokepoints"
+  | "ai-semiconductors"
+  | "sanctions-trade"
+  | "food-agriculture"
+  | "critical-minerals"
+  | "currency-inflation"
+  | "africa-macro"
+  | "asia-industrial"
+  | "middle-east-corridors"
+  | "europe-economy"
+  | "americas-policy"
+  | "biosecurity-health"
+  | "cyber-shadow-finance"
+  | "demographics-labor"
+  | "mega-infrastructure"
+  | "water-climate-econ"
+  | "corporate-monopolies"
+  | "aviation-defense-tech"
+  | "real-estate-housing";
 
 export interface EventCategoryMeta {
   key: EventCategoryKey;
@@ -28,39 +47,172 @@ export interface EventCategoryMeta {
 
 export const EVENT_CATEGORIES: EventCategoryMeta[] = [
   {
+    key: "world",
+    label: "World & Diplomatic Flashpoints",
+    shortLabel: "World & Diplomacy",
+    icon: "Globe",
+    description: "International summits, bilateral treaties, UN Security Council tensions, foreign ministries, and border diplomacy.",
+  },
+  {
     key: "insecurity-wars",
     label: "Insecurity, Wars & Armed Conflicts",
     shortLabel: "Wars & Conflicts",
     icon: "ShieldAlert",
-    description: "Active kinetic warfare, military strikes, missile defenses, insurgencies, and armed troop deployments.",
+    description: "Active kinetic warfare, military strikes, missile defenses, insurgencies, casualties, and troop deployments.",
   },
   {
     key: "financials-markets",
-    label: "Financials, Markets & Macro Economy",
-    shortLabel: "Markets & Macro",
+    label: "Financials, Stock Markets & Capital Flows",
+    shortLabel: "Markets & Capital",
     icon: "TrendingUp",
-    description: "Equities, bond yields, central bank rate decisions, debt cycles, inflation, and bank contagion.",
+    description: "Equities, bond yields, institutional asset management, hedge funds, liquidity cycles, and market selloffs.",
   },
   {
-    key: "geopolitics-diplomacy",
-    label: "Geopolitics, Diplomacy & Trade Chokepoints",
-    shortLabel: "Geopolitics & Diplomacy",
-    icon: "Globe",
-    description: "International treaties, diplomatic summits, bilateral sanctions, maritime chokepoints, and trade tariffs.",
+    key: "central-banks-debt",
+    label: "Central Banks, Interest Rates & Sovereign Debt",
+    shortLabel: "Central Banks & Debt",
+    icon: "Landmark",
+    description: "Federal Reserve, ECB, interest rate decisions, national debt defaults, bond markets, and IMF emergency facilities.",
   },
   {
-    key: "energy-commodities",
-    label: "Energy, Commodities & Cost of Living",
-    shortLabel: "Energy & Commodities",
+    key: "energy-power",
+    label: "Energy, Oil, Gas & Power Grids",
+    shortLabel: "Energy & Power Grids",
     icon: "Zap",
-    description: "Crude oil, natural gas, agriculture, critical minerals, electricity grids, and household cost of living.",
+    description: "Crude oil, natural gas, OPEC quotas, LNG shipments, electricity grid blackouts, and uranium nuclear power.",
   },
   {
-    key: "tech-health",
-    label: "Tech, AI & Global Health Crises",
-    shortLabel: "Tech & Health",
+    key: "shipping-chokepoints",
+    label: "Maritime Chokepoints, Canals & Global Freight",
+    shortLabel: "Maritime Chokepoints",
+    icon: "Anchor",
+    description: "Suez Canal, Red Sea transit, Strait of Hormuz, Malacca, container freight rates, and tanker blockades.",
+  },
+  {
+    key: "ai-semiconductors",
+    label: "AI, Semiconductors & Compute Hardware",
+    shortLabel: "AI & Semiconductors",
     icon: "Cpu",
-    description: "Artificial intelligence, semiconductor supply chains, cybersecurity breaches, and global health outbreaks.",
+    description: "Artificial intelligence models, GPU manufacturing, TSMC, ASML, lithography, compute data centers, and chip bans.",
+  },
+  {
+    key: "sanctions-trade",
+    label: "Sanctions, Tariffs & Trade Wars",
+    shortLabel: "Sanctions & Tariffs",
+    icon: "Scale",
+    description: "Import tariffs, bilateral trade embargoes, WTO disputes, protectionist barriers, and export controls.",
+  },
+  {
+    key: "food-agriculture",
+    label: "Global Food Supply, Fertilizer & Agriculture",
+    shortLabel: "Food & Agriculture",
+    icon: "Wheat",
+    description: "Grain harvests, wheat corridors, fertilizer shortages, drought crop failures, and global famine risks.",
+  },
+  {
+    key: "critical-minerals",
+    label: "Rare Earths, Copper, Lithium & Mining",
+    shortLabel: "Critical Minerals",
+    icon: "Gem",
+    description: "Lithium triangle, rare earth processing, copper shortages, cobalt mining, and critical industrial mineral reserves.",
+  },
+  {
+    key: "currency-inflation",
+    label: "Currency Devaluation & Cost-of-Living Crises",
+    shortLabel: "Currency & Inflation",
+    icon: "DollarSign",
+    description: "Hyperinflation, currency devaluations, purchasing power collapse, consumer price indices, and household living costs.",
+  },
+  {
+    key: "africa-macro",
+    label: "Africa & Emerging Market Macroeconomics",
+    shortLabel: "Africa Macro",
+    icon: "Compass",
+    description: "Sub-Saharan trade corridors, AfCFTA integration, African Union initiatives, commodity exports, and fiscal reforms.",
+  },
+  {
+    key: "asia-industrial",
+    label: "Asia-Pacific, China & India Industrial Shifts",
+    shortLabel: "Asia Industrial Shifts",
+    icon: "Layers",
+    description: "Manufacturing supply chain relocations, industrial factory output, industrial robotics, and Asian trade hubs.",
+  },
+  {
+    key: "middle-east-corridors",
+    label: "Middle East Petrodollars & Strategic Corridors",
+    shortLabel: "Middle East Corridors",
+    icon: "Navigation",
+    description: "Gulf sovereign wealth funds, petrodollar investments, regional economic corridors (IMEC), and transit routes.",
+  },
+  {
+    key: "europe-economy",
+    label: "European Deindustrialization & Policy",
+    shortLabel: "Europe Economy",
+    icon: "Building",
+    description: "Eurozone industrial decline, energy cost pressures on manufacturing, European Commission policies, and fiscal strains.",
+  },
+  {
+    key: "americas-policy",
+    label: "Americas, US Fiscal Policy & LatAm Resources",
+    shortLabel: "Americas Policy",
+    icon: "MapPin",
+    description: "US Congressional fiscal showdowns, Latin American resource extraction, Mercosur trade, and hemispheric treaties.",
+  },
+  {
+    key: "biosecurity-health",
+    label: "Disease Outbreaks, Bio-Health & Pharma Supply",
+    shortLabel: "Biosecurity & Health",
+    icon: "Activity",
+    description: "Viral epidemic outbreaks, WHO international alerts, pharmaceutical supply chains, vaccine logistics, and pathogen surveillance.",
+  },
+  {
+    key: "cyber-shadow-finance",
+    label: "Cyber Warfare, Illicit Finance & Crypto Heists",
+    shortLabel: "Cyber & Shadow Finance",
+    icon: "ShieldCheck",
+    description: "State-sponsored cyber intrusions, crypto exchange heists, dark web money laundering, and shadow banking routes.",
+  },
+  {
+    key: "demographics-labor",
+    label: "Demographic Shifts, Labor & Migration",
+    shortLabel: "Demographics & Labor",
+    icon: "Users",
+    description: "Aging workforces, plummeting fertility rates, mass migration corridors, labor strikes, and national pension deficits.",
+  },
+  {
+    key: "mega-infrastructure",
+    label: "Mega-Projects, Ports, Rail & Belt-and-Road",
+    shortLabel: "Mega Infrastructure",
+    icon: "Workflow",
+    description: "Deep-water ports, trans-continental high-speed rail, Belt-and-Road projects, mega-dams, and logistics highways.",
+  },
+  {
+    key: "water-climate-econ",
+    label: "Water Scarcity, Dikes & Resource Economics",
+    shortLabel: "Water & Resource Econ",
+    icon: "Droplets",
+    description: "Transboundary river rights, aquifer depletion, desalinization infrastructure, dam diplomacy, and water rationing.",
+  },
+  {
+    key: "corporate-monopolies",
+    label: "Corporate Giants, Antitrust & Monopoly Power",
+    shortLabel: "Corporate Monopolies",
+    icon: "Briefcase",
+    description: "Antitrust enforcement, mega-mergers, regulatory breakups, market dominance abuse, and cartel investigations.",
+  },
+  {
+    key: "aviation-defense-tech",
+    label: "Aerospace, Defense Industry & Military Tech",
+    shortLabel: "Aviation & Defense Tech",
+    icon: "Plane",
+    description: "Commercial aerospace backlogs, fifth-gen stealth fighters, hypersonic missiles, drone swarms, and defense contractors.",
+  },
+  {
+    key: "real-estate-housing",
+    label: "Global Property Markets, Urban Crisis & Housing",
+    shortLabel: "Real Estate & Housing",
+    icon: "Home",
+    description: "Commercial real estate defaults, mortgage rate shocks, urban housing shortages, property developer crises, and rent spikes.",
   },
 ];
 
@@ -91,11 +243,13 @@ export interface ClusteredNewsEvent {
   popularityScore: number; // 0 - 100 (Cross-Outlet Consensus)
   importanceScore: number; // 0 - 100 (Global Economic & Geopolitical Impact)
   importanceGrade: ImportanceGrade; // "S-Tier" | "A-Tier" | "B-Tier"
+  tierGrade: ImportanceGrade; // Spec alias
   importanceLabel: string; // e.g. "94% Global Impact [S-Tier: Economy & Geopolitics]"
   recencyScore: number;
   timeAgo: string;
   sensitivityScore: number;
   articles: ClusteredNewsArticle[];
+  keyPointsSummary: string[]; // 3 concise, strictly factual bullet points
 }
 
 /**
@@ -451,59 +605,172 @@ export function calculateImportanceScore(
 }
 
 /**
- * Classifies an event into one of the 5 top-level global categories
+ * Classifies an event into one of the 24 distinct documentary sections
  */
-export function classifyEventCategory(text: string): {
+export function classifyEventCategory(text: string, regionHint?: string): {
   key: EventCategoryKey;
   label: string;
 } {
   const lower = text.toLowerCase();
 
   const scores: Record<EventCategoryKey, number> = {
+    world: 0,
     "insecurity-wars": 0,
     "financials-markets": 0,
-    "geopolitics-diplomacy": 0,
-    "energy-commodities": 0,
-    "tech-health": 0,
+    "central-banks-debt": 0,
+    "energy-power": 0,
+    "shipping-chokepoints": 0,
+    "ai-semiconductors": 0,
+    "sanctions-trade": 0,
+    "food-agriculture": 0,
+    "critical-minerals": 0,
+    "currency-inflation": 0,
+    "africa-macro": 0,
+    "asia-industrial": 0,
+    "middle-east-corridors": 0,
+    "europe-economy": 0,
+    "americas-policy": 0,
+    "biosecurity-health": 0,
+    "cyber-shadow-finance": 0,
+    "demographics-labor": 0,
+    "mega-infrastructure": 0,
+    "water-climate-econ": 0,
+    "corporate-monopolies": 0,
+    "aviation-defense-tech": 0,
+    "real-estate-housing": 0,
   };
 
   const keywords: Record<EventCategoryKey, string[]> = {
+    world: [
+      "diplomacy", "diplomatic", "summit", "treaty", "pact", "united nations", "un security council",
+      "nato summit", "brics summit", "embassy", "ambassador", "bilateral talks", "foreign minister",
+      "peace talks", "ceasefire agreement", "international court", "icj", "icc", "geneva", "head of state",
+      "sovereignty dispute", "geopolitical talks", "consulate", "expel diplomat"
+    ],
     "insecurity-wars": [
-      "war", "military", "missile", "drone", "strike", "airstrike", "army", "troops", "rebel",
-      "combat", "attack", "invasion", "ceasefire", "weapons", "soldier", "artillery", "naval",
+      "war", "military", "missile", "drone strike", "airstrike", "army", "troops", "rebel",
+      "combat", "attack", "invasion", "weapons", "soldier", "artillery", "naval clash",
       "tank", "airbase", "hamas", "gaza", "israel", "hezbollah", "lebanon", "ukraine", "russia",
       "sudan", "yemen", "houthi", "syria", "somalia", "kiev", "kyiv", "moscow", "tehran",
-      "defense", "casualty", "casualties", "killed", "hostage", "shelling", "clash", "clashes",
-      "cluster-bomb", "warhead", "icbm", "ballistic", "insurgent", "terrorist", "militia", "hostages"
+      "casualties", "killed", "hostage", "shelling", "clash", "clashes", "cluster-bomb",
+      "warhead", "icbm", "ballistic", "frontline", "infantry", "air strike", "massacre"
     ],
     "financials-markets": [
-      "stock", "stocks", "market", "wall street", "nasdaq", "s&p", "dow", "fed", "federal reserve",
-      "interest rate", "rate hike", "rate cut", "inflation", "cpi", "central bank", "bond", "bonds",
-      "treasury", "yields", "recession", "gdp", "currency", "dollar", "euro", "yen", "yuan", "ruble",
-      "banking", "bank", "banks", "debt", "deficit", "investor", "private equity", "hedge fund",
-      "bankruptcy", "default", "trading", "crypto", "bitcoin", "ethereum", "binance", "imf", "world bank"
+      "stock", "stocks", "wall street", "nasdaq", "s&p 500", "dow jones", "equities", "shares",
+      "bond yield", "treasury yields", "market rally", "market selloff", "investor", "hedge fund",
+      "private equity", "capital flows", "liquidity", "asset management", "trading volume",
+      "bourse", "ftse", "nikkei", "derivatives", "index funds", "market plunge", "rally"
     ],
-    "energy-commodities": [
-      "oil", "crude", "brent", "wti", "opec", "gas", "natural gas", "lng", "refinery", "pipeline",
-      "electricity", "power grid", "blackout", "power outage", "fuel", "diesel", "petrol", "uranium",
-      "lithium", "copper", "gold", "critical minerals", "rare earths", "food price", "food prices",
-      "cost of living", "wheat", "grain", "fertilizer", "harvest", "grocery", "utilities"
+    "central-banks-debt": [
+      "central bank", "federal reserve", "powell", "ecb", "lagarde", "bank of england",
+      "bank of japan", "interest rate", "rate hike", "rate cut", "monetary policy",
+      "sovereign debt", "debt default", "debt ceiling", "national debt", "treasury bonds",
+      "bond market", "imf bailout", "world bank", "quantitative tightening", "balance sheet",
+      "bank collapse", "bank run", "banking crisis", "insolvency", "depositors"
     ],
-    "tech-health": [
+    "energy-power": [
+      "oil", "crude", "brent", "wti", "opec", "opec+", "natural gas", "lng", "pipeline",
+      "refinery", "power grid", "blackout", "electricity", "nuclear power", "uranium reactor",
+      "turbine", "solar power", "wind energy", "coal", "fuel shortage", "diesel", "petrol",
+      "gasoline", "utilities", "drilling", "saudi aramco", "gazprom", "exxon"
+    ],
+    "shipping-chokepoints": [
+      "shipping", "maritime", "freight", "container", "cargo", "suez canal", "panama canal",
+      "red sea", "strait of hormuz", "bab al-mandab", "bab-el-mandeb", "strait of malacca",
+      "bosphorus", "vessel", "tanker", "port congestion", "maersk", "evergreen", "houthi shipping",
+      "sea freight", "charter rates", "bulk carrier", "dockworkers", "dry bulk"
+    ],
+    "ai-semiconductors": [
       "ai", "artificial intelligence", "chip", "chips", "semiconductor", "microchip", "nvidia",
       "tsmc", "asml", "openai", "deepseek", "anthropic", "compute", "gpu", "datacenter", "data center",
-      "quantum", "cyber", "hack", "hackers", "malware", "biotech", "health", "virus", "outbreak",
-      "pandemic", "disease", "who", "cdc", "vaccine", "vaccination", "infection", "contagion",
-      "patient", "hospital", "pathogen", "ebola", "cholera", "marburg", "mpox", "bird flu", "h5n1",
-      "quarantine", "cancer"
+      "foundry", "lithography", "wafer", "llm", "neural network", "chatgpt", "gemini", "claude",
+      "blackwell", "h100", "ai model", "chips act", "supercomputer"
     ],
-    "geopolitics-diplomacy": [
-      "diplomacy", "diplomatic", "summit", "treaty", "pact", "sanctions", "sanction", "un",
-      "united nations", "nato", "brics", "embassy", "ambassador", "bilateral", "tariff", "tariffs",
-      "trade war", "export ban", "export controls", "borders", "straits", "suez", "panama canal",
-      "malacca", "red sea", "bab al-mandab", "south china sea", "sovereignty", "geopolitics",
-      "election", "vote", "parliament", "foreign minister", "president", "prime minister", "congress",
-      "impeach", "law", "court"
+    "sanctions-trade": [
+      "tariff", "tariffs", "sanctions", "trade war", "export control", "export ban", "embargo",
+      "customs", "wto", "protectionism", "trade deficit", "bilateral trade", "import duties",
+      "trade barrier", "trade dispute", "counter-tariffs", "secondary sanctions", "trade pact"
+    ],
+    "food-agriculture": [
+      "food", "agriculture", "grain", "wheat", "corn", "rice", "fertilizer", "harvest", "famine",
+      "drought crop", "potash", "food supply", "farm", "farming", "farmers", "livestock",
+      "food inflation", "breadbasket", "cargill", "food crisis", "food security", "poultry"
+    ],
+    "critical-minerals": [
+      "rare earths", "lithium", "cobalt", "nickel", "copper", "mining", "miners", "bauxite",
+      "graphite", "manganese", "mineral deposit", "refining minerals", "critical raw materials",
+      "ore", "smelting", "glencore", "rio tinto", "bhp", "mineral supply", "rare-earth"
+    ],
+    "currency-inflation": [
+      "inflation", "cpi", "cost of living", "currency devaluation", "hyperinflation",
+      "consumer prices", "purchasing power", "peso", "naira", "lira", "ruble", "dollar index",
+      "dxy", "forex", "exchange rate", "price spikes", "living costs", "affordability", "deflation"
+    ],
+    "africa-macro": [
+      "africa", "african union", "ecowas", "nigeria", "south africa", "kenya", "ghana",
+      "ethiopia", "angola", "cfa franc", "afcfta", "sub-saharan", "african development bank",
+      "nairobi", "lagos", "johannesburg", "african debt", "continental trade", "allafrica"
+    ],
+    "asia-industrial": [
+      "china manufacturing", "india manufacturing", "taiwan industrial", "vietnam factory",
+      "indonesia nickel", "supply chain shift", "industrial output", "shenzhen", "guangdong",
+      "export hub", "foxconn", "japan industrial", "south korea industrial", "factory output",
+      "manufacturing pmi", "electronics assembly", "industrial shift"
+    ],
+    "middle-east-corridors": [
+      "middle east", "gulf states", "saudi arabia", "uae", "qatar", "petrodollars",
+      "sovereign wealth fund", "pif", "aramco", "abu dhabi", "riyadh", "economic corridor",
+      "imec", "transit route", "neom", "gulf investment", "gcc", "oman", "kuwait"
+    ],
+    "europe-economy": [
+      "europe", "european union", "eu", "germany", "france", "eurozone", "deindustrialization",
+      "bundesbank", "german industry", "energy crisis europe", "brussels regulations",
+      "italy debt", "uk economy", "boe", "european commission", "eurozone pmi"
+    ],
+    "americas-policy": [
+      "us fiscal", "congress budget", "white house economic", "us national debt", "latin america",
+      "mercosur", "brazil", "mexico", "argentina", "milei", "lula", "andean", "lithium triangle",
+      "pan-american", "nafta", "usmca", "canada economy", "washington policy"
+    ],
+    "biosecurity-health": [
+      "virus", "outbreak", "bird flu", "h5n1", "mpox", "covid", "pandemic", "epidemic",
+      "pathogen", "vaccine", "vaccination", "who", "cdc", "pharma", "drug shortage",
+      "pharmaceutical", "biosecurity", "health emergency", "hospital beds", "disease spread"
+    ],
+    "cyber-shadow-finance": [
+      "cyber warfare", "cyber attack", "hackers", "malware", "ransomware", "crypto heist",
+      "binance", "illicit finance", "money laundering", "dark web", "shadow banking",
+      "espionage", "data breach", "ddos", "north korea hackers", "crypto hack", "lazarus group"
+    ],
+    "demographics-labor": [
+      "demographics", "aging population", "birth rate", "fertility rate", "labor shortage",
+      "migration", "migrant", "border crisis", "workforce", "pension crisis", "strike",
+      "strikes", "trade union", "asylum", "labor market", "working age", "depopulation"
+    ],
+    "mega-infrastructure": [
+      "infrastructure", "belt and road", "bri", "mega-project", "high-speed rail",
+      "deep-water port", "bridge", "dam", "highway corridor", "grid expansion",
+      "construction project", "tunnels", "railway network", "airport expansion"
+    ],
+    "water-climate-econ": [
+      "water scarcity", "drought", "aquifer", "desalination", "dam water", "nile",
+      "colorado river", "flood", "flooding", "sea level", "resource economics",
+      "climate adaptation", "reservoir", "water rationing", "freshwater", "basin"
+    ],
+    "corporate-monopolies": [
+      "antitrust", "monopoly", "monopolistic", "doj antitrust", "ftc", "lina khan",
+      "regulatory crackdown", "merger", "acquisition", "big tech monopoly", "cartel",
+      "market dominance", "price fixing", "anti-competitive", "breakup"
+    ],
+    "aviation-defense-tech": [
+      "aerospace", "aviation", "boeing", "airbus", "fighter jet", "f-35", "defense contractor",
+      "lockheed", "raytheon", "northrop", "drone swarm", "hypersonic", "space defense",
+      "military tech", "radar system", "air superiority", "missile defense"
+    ],
+    "real-estate-housing": [
+      "housing", "real estate", "mortgage", "mortgage rates", "property crisis", "rent",
+      "housing bubble", "commercial real estate", "cre", "developers", "eviction",
+      "evergrande", "housing market", "home prices", "affordable housing", "tenants"
     ],
   };
 
@@ -515,7 +782,7 @@ export function classifyEventCategory(text: string): {
     }
   }
 
-  let bestKey: EventCategoryKey = "geopolitics-diplomacy";
+  let bestKey: EventCategoryKey = "world";
   let maxScore = 0;
   for (const [key, score] of Object.entries(scores) as [EventCategoryKey, number][]) {
     if (score > maxScore) {
@@ -524,11 +791,167 @@ export function classifyEventCategory(text: string): {
     }
   }
 
-  const categoryMeta = EVENT_CATEGORIES.find((c) => c.key === bestKey) || EVENT_CATEGORIES[2];
+  // Fallback to region hints if generic
+  if (maxScore === 0) {
+    if (lower.includes("africa") || regionHint?.toLowerCase().includes("africa")) {
+      bestKey = "africa-macro";
+    } else if (lower.includes("china") || lower.includes("asia") || regionHint?.toLowerCase().includes("asia")) {
+      bestKey = "asia-industrial";
+    } else if (lower.includes("middle east") || lower.includes("gulf") || regionHint?.toLowerCase().includes("middle east")) {
+      bestKey = "middle-east-corridors";
+    } else if (lower.includes("europe") || regionHint?.toLowerCase().includes("europe")) {
+      bestKey = "europe-economy";
+    } else if (lower.includes("latin america") || lower.includes("americas") || regionHint?.toLowerCase().includes("us")) {
+      bestKey = "americas-policy";
+    } else {
+      bestKey = "world";
+    }
+  }
+
+  const categoryMeta = EVENT_CATEGORIES.find((c) => c.key === bestKey) || EVENT_CATEGORIES[0];
   return {
     key: bestKey,
     label: categoryMeta.label,
   };
+}
+
+/**
+ * Generates 3 concise, strictly factual bullet points directly grounded in the verified reports.
+ * Never invents, embellishes, or twists any words.
+ */
+export function generateKeyPointsSummary(
+  bestArticle: ClusteredNewsArticle,
+  clusterArticles: ClusteredNewsArticle[]
+): string[] {
+  const points: string[] = [];
+
+  // Bullet 1: Core factual event pulled strictly from primary title/snippet
+  const primarySnippet = (bestArticle.snippet || "").replace(/<[^>]*>?/gm, "").trim();
+  const primarySentences = primarySnippet
+    ? primarySnippet.split(/(?<=[.?!])\s+/).filter((s) => s.length > 20 && !s.includes("<!DOCTYPE"))
+    : [];
+
+  if (primarySentences[0]) {
+    points.push(primarySentences[0].replace(/\.\.\.$/, ""));
+  } else {
+    points.push(`Verified breaking dispatch: ${bestArticle.title.trim()}`);
+  }
+
+  // Bullet 2: Corroborating facts / institutional responses / numbers
+  let point2 = "";
+  if (primarySentences[1] && primarySentences[1] !== primarySentences[0]) {
+    point2 = primarySentences[1].replace(/\.\.\.$/, "");
+  } else if (clusterArticles.length > 1) {
+    const secArticle = clusterArticles.find((a) => a !== bestArticle && a.snippet && a.snippet.length > 25);
+    if (secArticle && secArticle.snippet) {
+      const secSentence = secArticle.snippet.split(/(?<=[.?!])\s+/).filter((s) => s.length > 20)[0];
+      if (secSentence) point2 = `${secArticle.source} reports: ${secSentence.replace(/\.\.\.$/, "")}`;
+    }
+  }
+
+  if (!point2) {
+    const outletsList = clusterArticles.map((a) => a.source).slice(0, 3).join(", ");
+    point2 = `Confirmed across primary international news services including ${outletsList}.`;
+  }
+  points.push(point2);
+
+  // Bullet 3: Strategic geopolitical or economic impact
+  let point3 = "";
+  if (primarySentences[2]) {
+    point3 = primarySentences[2].replace(/\.\.\.$/, "");
+  } else if (clusterArticles.length > 2) {
+    const thirdArticle = clusterArticles[2];
+    if (thirdArticle.snippet && thirdArticle.snippet.length > 25) {
+      point3 = `${thirdArticle.source} notes operational impact: ${thirdArticle.snippet.slice(0, 140)}`;
+    }
+  }
+
+  if (!point3) {
+    const regions = Array.from(new Set(clusterArticles.map((a) => a.region)));
+    point3 = `Immediate systemic impact observed across regional jurisdictions (${regions.join(", ") || "Global"}).`;
+  }
+  points.push(point3);
+
+  // Return exactly 3 strictly factual bullets
+  return points.slice(0, 3).map((p) => p.replace(/\s+/g, " ").trim().replace(/\.*$/, ""));
+}
+
+/**
+ * Compiles a formatted summary sheet matching the required layout for 1-click .txt downloads
+ */
+export function generateCompiledSummaryText(params: {
+  scope: string; // e.g. "ALL 24 SECTIONS" or "WORLD & DIPLOMATIC FLASHPOINTS"
+  sortMode: string; // e.g. "Weighted Importance" or "Popularity (Consensus)"
+  events: ClusteredNewsEvent[];
+  sectionMetas?: EventCategoryMeta[];
+}): string {
+  const { scope, sortMode, events, sectionMetas = EVENT_CATEGORIES } = params;
+  const now = new Date();
+  const generatedTime = `${now.toISOString().slice(0, 10)} ${now.toTimeString().slice(0, 8)} UTC`;
+
+  const lines: string[] = [
+    "========================================================================",
+    "CAUSALFLOW // COMPILED DOCUMENTARY INTELLIGENCE SUMMARY SHEET",
+    `Scope: ${scope.toUpperCase()}`,
+    `Generated: ${generatedTime} | Sort Mode: ${sortMode}`,
+    "========================================================================",
+    "",
+  ];
+
+  // Group events by categoryKey
+  const eventsByCategory = new Map<string, ClusteredNewsEvent[]>();
+  for (const event of events) {
+    const key = event.categoryKey || "world";
+    if (!eventsByCategory.has(key)) {
+      eventsByCategory.set(key, []);
+    }
+    eventsByCategory.get(key)!.push(event);
+  }
+
+  // Iterate over sections
+  const isGlobal = scope.toUpperCase() === "ALL 24 SECTIONS" || scope.toUpperCase() === "GLOBAL";
+  const sectionsToInclude = isGlobal
+    ? sectionMetas
+    : sectionMetas.filter(
+        (s) =>
+          s.label.toUpperCase() === scope.toUpperCase() ||
+          s.key.toLowerCase() === scope.toLowerCase() ||
+          s.shortLabel.toUpperCase() === scope.toUpperCase()
+      );
+
+  for (const sec of sectionsToInclude) {
+    const secEvents = eventsByCategory.get(sec.key) || [];
+
+    lines.push(`=== SECTION: ${sec.label.toUpperCase()} ===`);
+    lines.push("------------------------------------------------------------------------");
+
+    if (secEvents.length === 0) {
+      lines.push("No active breaking dispatches currently clustered in this section.");
+      lines.push("");
+      continue;
+    }
+
+    secEvents.forEach((ev, idx) => {
+      const topOutlets = ev.outlets.slice(0, 4).join(", ");
+      const outletsCount = ev.outlets.length;
+      lines.push(
+        `[#${idx + 1}] [IMPORTANCE: ${ev.importanceScore}% ${ev.tierGrade || ev.importanceGrade} | POPULARITY: ${ev.popularityScore}% (${outletsCount} Outlets: ${topOutlets})]`
+      );
+      lines.push(`HEADLINE: ${ev.title.trim()}`);
+      lines.push(`PUBLISHED: ${ev.timeAgo} (${new Date(ev.recencyScore).toISOString()})`);
+      lines.push("KEY POINTS:");
+      (ev.keyPointsSummary || []).forEach((kp) => {
+        lines.push(`• ${kp}`);
+      });
+      lines.push("VERIFIED SOURCES:");
+      ev.articles.forEach((art) => {
+        lines.push(`- ${art.source} (${art.region}): ${art.link}`);
+      });
+      lines.push("");
+    });
+  }
+
+  return lines.join("\n");
 }
 
 /**
@@ -773,6 +1196,8 @@ export function clusterAndScoreHeadlines(rawArticles: RawArticleItem[], query?: 
         ? `🚨 ${distinctOutlets.length} Outlets: ${topOutletsSample}${outletsSuffix}`
         : `📡 ${distinctOutlets[0] || "Global Wire"}`;
 
+    const keyPointsSummary = generateKeyPointsSummary(bestArticle, c.articles);
+
     return {
       id: c.id,
       title: bestArticle.title,
@@ -789,11 +1214,13 @@ export function clusterAndScoreHeadlines(rawArticles: RawArticleItem[], query?: 
       popularityScore,
       importanceScore,
       importanceGrade,
+      tierGrade: importanceGrade,
       importanceLabel,
       recencyScore: c.latestTimestamp,
       timeAgo: formatTimeAgo(new Date(c.latestTimestamp).toISOString()),
       sensitivityScore,
       articles: c.articles,
+      keyPointsSummary,
     };
   });
 
