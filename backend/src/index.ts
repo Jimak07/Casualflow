@@ -278,6 +278,18 @@ const GLOBAL_RSS_MATRIX: FeedConfig[] = [
     category: "geopolitics",
   },
   {
+    url: "https://news.google.com/rss/search?q=site:apnews.com+when:2d&hl=en-US&gl=US&ceid=US:en",
+    source: "Associated Press",
+    region: "US & Global Finance",
+    category: "geopolitics",
+  },
+  {
+    url: "https://news.google.com/rss/search?q=site:bloomberg.com+when:2d&hl=en-US&gl=US&ceid=US:en",
+    source: "Bloomberg",
+    region: "US & Global Finance",
+    category: "finance",
+  },
+  {
     url: "https://finance.yahoo.com/news/rssindex",
     source: "Yahoo Finance",
     region: "US & Global Finance",
@@ -1076,20 +1088,160 @@ Generate the complete 3-Part Geopolitical Storyline Map and the full 5-Act Econo
   }
 });
 
+/**
+ * Extracts structured key facts (figures, dates, quotes, core takeaways)
+ * from the scraped briefing pack articles for instant reader breakdown
+ */
+function extractKeyFactsFromBriefing(briefingPack: any): {
+  figures: string[];
+  dates: string[];
+  quotes: string[];
+  bulletSummary: string[];
+} {
+  const figures = new Set<string>();
+  const dates = new Set<string>();
+  const quotes = new Set<string>();
+  const bulletSummary: string[] = [];
+
+  for (const art of briefingPack.scrapedArticles || []) {
+    const text = art.fullText || (art.paragraphs || []).join(" ");
+    if (!text) continue;
+
+    if (art.paragraphs && art.paragraphs[0]) {
+      const p = art.paragraphs[0].trim();
+      if (p.length > 30 && !bulletSummary.includes(p)) {
+        bulletSummary.push(`[${art.source}] ${p}`);
+      }
+    }
+
+    const quoteMatches = text.match(/"([^"\\]{15,140})"/g) || [];
+    for (const q of quoteMatches) {
+      quotes.add(`${q} — ${art.source}`);
+      if (quotes.size >= 6) break;
+    }
+
+    const numMatches =
+      text.match(
+        /\b(?:\$[\d,.]+[kmb]?|\d+(?:\.\d+)?%\s*(?:jump|drop|surge|fall|decline|hike|inflation)?|\d+(?:\.\d+)?\s*(?:billion|trillion|million|bn|tn))\b/gi
+      ) || [];
+    for (const n of numMatches) {
+      figures.add(`${n.trim()} (${art.source})`);
+      if (figures.size >= 8) break;
+    }
+
+    const dateMatches =
+      text.match(
+        /\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:,\s*\d{4})?|\b(?:19|20)\d{2}\b|\b(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b/gi
+      ) || [];
+    for (const d of dateMatches) {
+      dates.add(d.trim());
+      if (dates.size >= 6) break;
+    }
+  }
+
+  return {
+    figures: Array.from(figures).slice(0, 8),
+    dates: Array.from(dates).slice(0, 8),
+    quotes: Array.from(quotes).slice(0, 6),
+    bulletSummary: bulletSummary.slice(0, 6),
+  };
+}
+
 function cleanVoiceoverNarration(text: string): string {
   if (!text) return "";
   return text
+    // 1. Strip markdown headings (### Act 1, ## Section, etc.)
+    .replace(/^#{1,6}\s+.*$/gm, "")
+    // 2. Strip ACT / SCENE / CHAPTER header lines
+    .replace(/^(?:ACT\s+[0-9IVXLCDM]+|CHAPTER\s+[0-9IVXLCDM]+|SCENE\s+[0-9IVXLCDM]+|COLD\s+OPEN|OUTRO)[^\n]*$/gim, "")
+    // 3. Strip speaker / voice labels at start of lines (e.g. VOICEOVER:, NARRATOR:, NARRATION:, VO:, HOST:)
+    .replace(/^(?:VOICEOVER|NARRATION|NARRATOR|VO|HOST|SPEAKER)\s*:\s*/gim, "")
+    .replace(/\b(?:VOICEOVER|NARRATION|NARRATOR|VO)\s*:\s*/gi, "")
+    // 4. Strip [CAPCUT CUES], [B-ROLL:...], [SFX:...], [SCENE:...], and ANY bracketed directions EXCEPT [Source: ...]
     .replace(/\[CAPCUT\s*CUES?[^\]]*\]/gi, "")
     .replace(/\[CapCut[^\]]*\]/gi, "")
-    .replace(/\[SCENE\s*START[^\]]*\]/gi, "")
     .replace(/\[SFX:[^\]]*\]/gi, "")
     .replace(/\[B-ROLL:[^\]]*\]/gi, "")
-    .replace(/^#{1,6}\s+.*$/gm, "") // Strip markdown headings
-    .replace(/\*\*([^*]+)\*\*/g, "$1") // Strip bold asterisks
-    .replace(/__([^_]+)__/g, "$1") // Strip bold underscores
+    .replace(/\[VISUAL:[^\]]*\]/gi, "")
+    .replace(/\[(?!\s*Source:)[^\]]*\]/gi, "")
+    // 5. Strip markdown bold / italics formatting in voiceover text
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    // 6. Clean whitespace and excess newlines
+    .replace(/\r/g, "")
+    .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
+
+/**
+ * 4. Fast News Briefing Pack Scraper (POST /api/briefing)
+ * Scrapes top reporting articles, historical timeline, and extracts structured key facts
+ * Returns in ~1.5-3 seconds WITHOUT calling LLM.
+ */
+app.post("/api/briefing", async (req: Request, res: Response) => {
+  try {
+    const { cluster, pitch, tavilyKey = "" } = req.body;
+    const sourceData = cluster || pitch;
+    if (!sourceData) {
+      return res.status(400).json({
+        success: false,
+        error: "MISSING_DATA",
+        message: "News cluster or pitch data is required.",
+      });
+    }
+
+    const effectiveTavilyKey =
+      (tavilyKey && tavilyKey.trim()) || process.env.TAVILY_API_KEY || "";
+
+    const briefingPack = await buildVerifiedBriefingPack(
+      sourceData,
+      effectiveTavilyKey
+    );
+
+    const keyFacts = extractKeyFactsFromBriefing(briefingPack);
+
+    return res.json({
+      success: true,
+      topic: briefingPack.topic,
+      consensusBadge:
+        briefingPack.consensusBadge ||
+        `${briefingPack.scrapedArticles.length} Verified Outlets`,
+      scrapedCount: briefingPack.scrapedArticles.length,
+      timelineCount: briefingPack.backgroundTimeline.length,
+      articles: briefingPack.scrapedArticles.map((a: any) => ({
+        title: a.title,
+        source: a.source,
+        url: a.url,
+        region: a.region || "Global",
+        pubDate: a.pubDate || new Date().toISOString(),
+        paragraphsCount: (a.paragraphs || []).length,
+        paragraphs: a.paragraphs || [],
+        snippet: a.paragraphs?.[0] || "",
+        fullText: a.fullText || "",
+      })),
+      backgroundTimeline: briefingPack.backgroundTimeline,
+      keyFacts,
+      briefingPackText: briefingPack.briefingPackText,
+      verifiedSources: briefingPack.scrapedArticles.map((a: any) => ({
+        title: a.title,
+        source: a.source,
+        region: a.region || "Global",
+        link: a.url,
+        pubDate: a.pubDate,
+        snippet: a.paragraphs?.[0] || "",
+      })),
+    });
+  } catch (err: any) {
+    console.error("Briefing API Error:", err);
+    return res.status(500).json({
+      success: false,
+      error: "BRIEFING_FAILED",
+      message: err.message || "Failed to assemble briefing pack",
+    });
+  }
+});
 
 // 5. Jimak Documentary Voiceover Script Engine (POST /api/script)
 app.post("/api/script", async (req: Request, res: Response) => {
@@ -1476,131 +1628,31 @@ REGENERATE ACT [${targetActIndex + 1}] strictly adhering to Jimak's style rules 
       }
     }
 
-    // 4. Split voiceover text into acts for the frontend ScriptStudio
-    let sections: { act: string; cue: string; narration: string; timestamp: string }[] = [];
+    // 4. Return pure continuous script with ZERO cues, ZERO act headers, ZERO stage directions
+    const pureScript = voiceoverText;
+    const keyFacts = extractKeyFactsFromBriefing(briefingPack);
 
-    if (format === "short") {
-      const paragraphs = voiceoverText
-        .split(/\n\n+/)
-        .map((p) => p.trim())
-        .filter((p) => p.length > 20);
-
-      if (paragraphs.length >= 3) {
-        const p1 = paragraphs.slice(0, Math.max(1, Math.floor(paragraphs.length * 0.35))).join("\n\n");
-        const p2 = paragraphs.slice(Math.max(1, Math.floor(paragraphs.length * 0.35)), Math.max(2, Math.floor(paragraphs.length * 0.75))).join("\n\n");
-        const p3 = paragraphs.slice(Math.max(2, Math.floor(paragraphs.length * 0.75))).join("\n\n");
-
-        sections = [
-          {
-            act: "HOOK & URGENCY",
-            cue: "Dynamic kinetic typography, sound design hit, headline flash",
-            narration: p1,
-            timestamp: "0:00 – 0:15",
-          },
-          {
-            act: "THE 3 PILLARS & MECHANISM",
-            cue: "3-stage animated graphic, sound design riser, map highlight",
-            narration: p2,
-            timestamp: "0:15 – 0:45",
-          },
-          {
-            act: "CLOSING QUESTION & CTA",
-            cue: "Link arrow overlay pointing down, title card animation",
-            narration: p3,
-            timestamp: "0:45 – 1:00",
-          },
-        ];
-      } else {
-        sections = [
-          {
-            act: "SHORTS SCREENPLAY (~60s)",
-            cue: "Dynamic kinetic typography, sound design, link arrow overlay",
-            narration: voiceoverText,
-            timestamp: "0:00 – 1:00",
-          },
-        ];
-      }
-    } else {
-      // Long-form: split into 5 acts
-      const paragraphs = voiceoverText
-        .split(/\n\n+/)
-        .map((p) => p.trim())
-        .filter((p) => p.length > 20);
-
-      const actNames = [
-        "COLD OPEN & AGENDA",
-        "CHAPTER 1 // THE ORIGIN & BREAKING CATALYST",
-        "CHAPTER 2 // THE GEOPOLITICAL & STRUCTURAL MECHANISM",
-        "CHAPTER 3 // HOW IT HITS THE AVERAGE PERSON",
-        "CHAPTER 4 // AND FINALLY: THE VERDICT",
-      ];
-      const actCues = [
-        "Establishing drone shots, global news montage, lower-third graphics, tension riser",
-        "Split-screen news broadcast montage, animated timeline map, audio typewriter SFX",
-        "Archival footage grain, 3D supply-chain chokepoint motion graphic, sub-bass riser",
-        "Intimate ground-level footage: grocery receipts, power meters, purchasing power charts",
-        "Cinematic aerial pullback, summary scorecards, ambient synth resolution",
-      ];
-      const actTimestamps = [
-        "0:00 – 1:45",
-        "1:45 – 5:00",
-        "5:00 – 9:00",
-        "9:00 – 12:30",
-        "12:30 – 15:00",
-      ];
-
-      if (paragraphs.length >= 5) {
-        const weights = [0.16, 0.21, 0.23, 0.21, 0.19];
-        const total = paragraphs.length;
-        let cursor = 0;
-        for (let i = 0; i < 5; i++) {
-          const count =
-            i === 4
-              ? total - cursor
-              : Math.max(1, Math.round(total * weights[i]));
-          const slice = paragraphs.slice(cursor, cursor + count);
-          sections.push({
-            act: actNames[i],
-            cue: actCues[i],
-            narration: slice.join("\n\n"),
-            timestamp: actTimestamps[i],
-          });
-          cursor += count;
-        }
-      } else if (paragraphs.length > 0) {
-        const numActs = Math.min(paragraphs.length, 5);
-        for (let i = 0; i < numActs; i++) {
-          sections.push({
-            act: actNames[i] || `CHAPTER ${i + 1}`,
-            cue: actCues[i] || "Cinematic visuals",
-            narration: paragraphs[i],
-            timestamp: actTimestamps[i] || "",
-          });
-        }
-      } else {
-        sections = [
-          {
-            act: "FULL DOCUMENTARY VOICEOVER",
-            cue: "Cinematic establishing shots and documentary narrative visual flow",
-            narration: voiceoverText,
-            timestamp: "0:00 – 15:00",
-          },
-        ];
-      }
-    }
-
-    const fullVoiceover = sections
-      .map((s) => s.narration)
-      .filter(Boolean)
-      .join("\n\n");
+    // Keep sections array with single continuous entry for backwards compatibility
+    const sections = [
+      {
+        act: "PURE JIMAK SCREENPLAY",
+        cue: "",
+        narration: pureScript,
+        timestamp: "0:00 – Complete",
+      },
+    ];
 
     return res.json({
       success: true,
       format,
-      count: sections.length,
+      count: 1,
       pitchId: sourceData.id || "documentary-script",
+      title: sourceData.title,
+      category: sourceData.category || "Geopolitics & Macroeconomics",
+      scriptText: pureScript,
+      fullVoiceover: pureScript,
+      wordCount: wordCountExtracted,
       sections,
-      fullVoiceover,
       meta: {
         vehicle,
         mechanism,
@@ -1615,12 +1667,15 @@ REGENERATE ACT [${targetActIndex + 1}] strictly adhering to Jimak's style rules 
           title: a.title,
           source: a.source,
           url: a.url,
-          region: a.region,
-          pubDate: a.pubDate,
+          region: a.region || "Global",
+          pubDate: a.pubDate || new Date().toISOString(),
           paragraphsCount: (a.paragraphs || []).length,
+          paragraphs: a.paragraphs || [],
           snippet: a.paragraphs?.[0] || "",
+          fullText: a.fullText || "",
         })),
         backgroundTimeline: briefingPack.backgroundTimeline,
+        keyFacts,
         briefingPackText: briefingPack.briefingPackText,
       },
       verifiedSources: [
@@ -1629,6 +1684,7 @@ REGENERATE ACT [${targetActIndex + 1}] strictly adhering to Jimak's style rules 
           source: a.source,
           link: a.url,
           region: a.region,
+          snippet: a.paragraphs?.[0] || "",
         })),
         ...evidenceLines
           .filter((e) => e.url && e.source)

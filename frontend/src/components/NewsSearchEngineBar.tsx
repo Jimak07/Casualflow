@@ -22,8 +22,8 @@ interface NewsSearchEngineBarProps {
   onSearch: (query: string) => void;
   onRefreshToday: () => void;
   isScanning: boolean;
-  activeNiche: GeopoliticalNiche;
-  onSelectNiche: (niche: GeopoliticalNiche) => void;
+  activeNiche: string;
+  onSelectNiche: (niche: string) => void;
   sortMode: SortMode;
   onSelectSortMode: (mode: SortMode) => void;
   totalClustersCount: number;
@@ -31,15 +31,16 @@ interface NewsSearchEngineBarProps {
 }
 
 const NICHE_TABS: {
-  id: GeopoliticalNiche;
+  id: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
 }[] = [
-  { id: "all", label: "All Geopolitics Today", icon: Globe2 },
-  { id: "wars-conflicts", label: "Wars & Conflicts", icon: Swords },
-  { id: "outbreaks-health", label: "Outbreaks & Bio-Health", icon: Activity },
-  { id: "ai-tech", label: "AI & Tech Geopolitics", icon: Cpu },
-  { id: "macro-trade", label: "Global Macro & Trade", icon: TrendingUp },
+  { id: "all", label: "All 5 Sections", icon: Globe2 },
+  { id: "insecurity-wars", label: "Wars & Conflicts", icon: Swords },
+  { id: "financials-markets", label: "Financials & Markets", icon: TrendingUp },
+  { id: "geopolitics-diplomacy", label: "Geopolitics & Diplomacy", icon: Globe2 },
+  { id: "energy-commodities", label: "Energy & Cost of Living", icon: Flame },
+  { id: "tech-health", label: "Tech, AI & Health", icon: Cpu },
 ];
 
 const SORT_OPTIONS: {

@@ -1389,7 +1389,20 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => {
-                            setSections(entry.sections);
+                            if (entry.sections && entry.sections.length > 0) {
+                              setSections(entry.sections);
+                            } else if (entry.scriptText) {
+                              setSections([
+                                {
+                                  act: "PURE JIMAK SCREENPLAY",
+                                  cue: "",
+                                  narration: entry.scriptText,
+                                  timestamp: "0:00 – Complete",
+                                },
+                              ]);
+                            } else {
+                              setSections([]);
+                            }
                             setIsLibraryOpen(false);
                             showToast(`Loaded "${entry.title.slice(0, 25)}..." into Studio!`);
                           }}

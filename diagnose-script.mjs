@@ -95,9 +95,9 @@ for (const modelId of discoveredModels) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PART 3: END-TO-END POST /api/script FOR PARAGUAY STORY
+// PART 3: TEST POST /api/briefing (INSTANT FACTUAL SHEET & SCRAPED ARTICLES)
 // ─────────────────────────────────────────────────────────────────────────────
-console.log("\n[STEP 3: LIVE END-TO-END SCREENPLAY GENERATION FOR PARAGUAY CLUSTER]");
+console.log("\n[STEP 3: LIVE VERIFICATION OF POST /api/briefing]");
 
 const paraguayCluster = {
   id: "cluster-paraguay-impeachment",
@@ -105,9 +105,11 @@ const paraguayCluster = {
   summary: "Paraguay's congress votes to impeach the president following the systemic collapse of leading regional banks, freezing liquidity and triggering emergency runs.",
   category: "Geopolitics",
   primaryNiche: "Geopolitics",
+  categoryKey: "geopolitics-diplomacy",
+  categoryLabel: "Geopolitics, Diplomacy & Trade Chokepoints",
   outlets: ["Reuters", "BBC News", "Al Jazeera", "Financial Times"],
   regions: ["South America", "Global Finance"],
-  consensusBadge: "🚨 4 Outlets Verified",
+  consensusBadge: "🚨 4 Outlets Verified: Reuters, BBC News, Al Jazeera, Financial Times",
   articles: [
     {
       title: "Paraguayan Congress votes to impeach president as regional banking crisis worsens",
@@ -132,6 +134,34 @@ const paraguayCluster = {
     },
   ],
 };
+
+console.log(`- Sending POST http://localhost:8000/api/briefing...`);
+const briefingStart = Date.now();
+try {
+  const briefingRes = await fetch("http://localhost:8000/api/briefing", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ cluster: paraguayCluster }),
+  });
+  const briefingElapsed = ((Date.now() - briefingStart) / 1000).toFixed(2);
+  console.log(`- HTTP Status: ${briefingRes.status} (took ${briefingElapsed}s)`);
+  if (briefingRes.ok) {
+    const briefingData = await briefingRes.json();
+    console.log(`✓ Briefing returned successfully:`);
+    console.log(`  - Core Entities: ${briefingData.keyFacts?.coreTakeaways?.slice(0, 2).join(" | ")}`);
+    console.log(`  - Scraped Articles: ${briefingData.articles?.length || 0}`);
+    console.log(`  - Timeline Events: ${briefingData.timeline?.length || 0}`);
+  } else {
+    console.log(`⚠️ Briefing error: ${await briefingRes.text()}`);
+  }
+} catch (e) {
+  console.log(`Note on /api/briefing: ${e.message}`);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PART 4: END-TO-END POST /api/script FOR PARAGUAY STORY
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\n[STEP 4: LIVE END-TO-END SCREENPLAY GENERATION FOR PARAGUAY CLUSTER]");
 
 console.log(`- Sending POST http://localhost:8000/api/script...`);
 const scriptStart = Date.now();
@@ -162,13 +192,24 @@ console.log("===================================================================
 console.log(`1. Success: ${scriptData.success}`);
 console.log(`2. Provider: ${scriptData.provider}`);
 console.log(`3. Verified Model Used: ${scriptData.model} (CONFIRMED AGENTROUTER)`);
-console.log(`4. Total Sections: ${scriptData.sections?.length}`);
 
-const fullScriptText = (scriptData.sections || []).map((s) => s.narration).join("\n\n");
-const wordCount = fullScriptText.trim().split(/\s+/).filter(Boolean).length;
-console.log(`5. Total Voiceover Word Count: ${wordCount} words`);
+const pureScriptText = scriptData.scriptText || (scriptData.sections || []).map((s) => s.narration).join("\n\n");
+const wordCount = pureScriptText.trim().split(/\s+/).filter(Boolean).length;
+console.log(`4. Total Voiceover Word Count: ${wordCount} words`);
 
-const allParagraphs = fullScriptText
+// Verification checks
+const hasCapcutCues = /\[CAPCUT\s*CUES?\]/i.test(pureScriptText);
+const hasActHeaders = /ACT\s+[I|V|X\d]+/i.test(pureScriptText);
+const hasVoiceoverPrefix = /VOICEOVER\s*[:\/]/i.test(pureScriptText);
+const hasSourceCitations = /\[Source:\s*[^\]]+\]/i.test(pureScriptText);
+
+console.log(`5. Style Guide Compliance Checks:`);
+console.log(`   - Zero [CAPCUT CUES]: ${!hasCapcutCues ? "PASSED ✓" : "FAILED ❌"}`);
+console.log(`   - Zero ACT Headers: ${!hasActHeaders ? "PASSED ✓" : "FAILED ❌"}`);
+console.log(`   - Zero VOICEOVER prefixes: ${!hasVoiceoverPrefix ? "PASSED ✓" : "FAILED ❌"}`);
+console.log(`   - Preserves [Source: ...] citations: ${hasSourceCitations ? "PASSED ✓" : "NOTE (no [Source: ...] found)"}`);
+
+const allParagraphs = pureScriptText
   .split(/\n\n+/)
   .map((p) => p.trim())
   .filter((p) => p.length > 25);

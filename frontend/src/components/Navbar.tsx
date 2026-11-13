@@ -19,8 +19,8 @@ interface NavbarProps {
   onOpenApiKeys: () => void;
   onScanNews: () => void;
   isScanning: boolean;
-  mobileActiveTab: "radar" | "studio";
-  onTabChange: (tab: "radar" | "studio") => void;
+  mobileActiveTab?: "radar" | "studio";
+  onTabChange?: (tab: "radar" | "studio") => void;
   storyCount: number;
 }
 
@@ -71,30 +71,32 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
 
         {/* Mobile View Tab Switcher (Segmented Control) */}
-        <div className="flex lg:hidden items-center p-1 rounded-xl bg-slate-100 dark:bg-[#0E131F] border border-slate-200 dark:border-white/10">
-          <button
-            onClick={() => onTabChange("radar")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-              mobileActiveTab === "radar"
-                ? "bg-blue-600 text-white shadow-sm font-semibold"
-                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-            }`}
-          >
-            <Layers className="w-3.5 h-3.5" />
-            <span>Radar ({storyCount})</span>
-          </button>
-          <button
-            onClick={() => onTabChange("studio")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-              mobileActiveTab === "studio"
-                ? "bg-blue-600 text-white shadow-sm font-semibold"
-                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-            }`}
-          >
-            <FileText className="w-3.5 h-3.5" />
-            <span>Script Studio</span>
-          </button>
-        </div>
+        {onTabChange && mobileActiveTab && (
+          <div className="flex lg:hidden items-center p-1 rounded-xl bg-slate-100 dark:bg-[#0E131F] border border-slate-200 dark:border-white/10">
+            <button
+              onClick={() => onTabChange("radar")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                mobileActiveTab === "radar"
+                  ? "bg-blue-600 text-white shadow-sm font-semibold"
+                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>Radar ({storyCount})</span>
+            </button>
+            <button
+              onClick={() => onTabChange("studio")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                mobileActiveTab === "studio"
+                  ? "bg-blue-600 text-white shadow-sm font-semibold"
+                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>Script Studio</span>
+            </button>
+          </div>
+        )}
 
         {/* Navigation Action Buttons */}
         <div className="flex items-center gap-2 sm:gap-3">

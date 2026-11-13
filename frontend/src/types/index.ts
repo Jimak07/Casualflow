@@ -64,6 +64,66 @@ export interface EvidencePack {
   contextArticles: VerifiedSource[];
 }
 
+export type EventCategoryKey =
+  | "insecurity-wars"
+  | "financials-markets"
+  | "geopolitics-diplomacy"
+  | "energy-commodities"
+  | "tech-health";
+
+export interface EventCategoryMeta {
+  key: EventCategoryKey;
+  label: string;
+  shortLabel: string;
+  icon: string;
+  description: string;
+}
+
+export const EVENT_CATEGORIES: EventCategoryMeta[] = [
+  {
+    key: "insecurity-wars",
+    label: "Insecurity, Wars & Armed Conflicts",
+    shortLabel: "Wars & Conflicts",
+    icon: "ShieldAlert",
+    description: "Active kinetic warfare, military strikes, missile defenses, insurgencies, and armed troop deployments.",
+  },
+  {
+    key: "financials-markets",
+    label: "Financials, Markets & Macro Economy",
+    shortLabel: "Markets & Macro",
+    icon: "TrendingUp",
+    description: "Equities, bond yields, central bank rate decisions, debt cycles, inflation, and bank contagion.",
+  },
+  {
+    key: "geopolitics-diplomacy",
+    label: "Geopolitics, Diplomacy & Trade Chokepoints",
+    shortLabel: "Geopolitics & Diplomacy",
+    icon: "Globe",
+    description: "International treaties, diplomatic summits, bilateral sanctions, maritime chokepoints, and trade tariffs.",
+  },
+  {
+    key: "energy-commodities",
+    label: "Energy, Commodities & Cost of Living",
+    shortLabel: "Energy & Commodities",
+    icon: "Zap",
+    description: "Crude oil, natural gas, agriculture, critical minerals, electricity grids, and household cost of living.",
+  },
+  {
+    key: "tech-health",
+    label: "Tech, AI & Global Health Crises",
+    shortLabel: "Tech & Health",
+    icon: "Cpu",
+    description: "Artificial intelligence, semiconductor supply chains, cybersecurity breaches, and global health outbreaks.",
+  },
+];
+
+export interface KeyFactsData {
+  figures: string[];
+  dates: string[];
+  quotes: string[];
+  bulletSummary: string[];
+}
+
 export interface BriefingPackArticle {
   title: string;
   source: string;
@@ -73,6 +133,7 @@ export interface BriefingPackArticle {
   paragraphsCount: number;
   snippet?: string;
   paragraphs?: string[];
+  fullText?: string;
 }
 
 export interface BriefingPackData {
@@ -87,6 +148,7 @@ export interface BriefingPackData {
     url: string;
     snippet: string;
   }[];
+  keyFacts?: KeyFactsData;
   briefingPackText?: string;
 }
 
@@ -154,7 +216,10 @@ export interface SavedScriptEntry {
   savedAt: string;
   wordCount: number;
   runtime: string;
-  sections: ScriptSection[];
+  scriptText?: string;
+  fullVoiceover?: string;
+  sections?: ScriptSection[];
+  briefingPack?: BriefingPackData;
   verifiedSources?: VerifiedSource[];
 }
 
@@ -205,6 +270,9 @@ export interface ClusteredNewsEvent {
   id: string;
   title: string;
   summary: string;
+  categoryKey?: EventCategoryKey;
+  categoryLabel?: string;
+  category?: string;
   primaryNiche: GeopoliticalNiche;
   sensitivityLabel: string;
   consensusBadge: string;

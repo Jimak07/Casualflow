@@ -11,6 +11,59 @@ export type GeopoliticalNiche =
   | "ai-tech"
   | "macro-trade";
 
+export type EventCategoryKey =
+  | "insecurity-wars"
+  | "financials-markets"
+  | "geopolitics-diplomacy"
+  | "energy-commodities"
+  | "tech-health";
+
+export interface EventCategoryMeta {
+  key: EventCategoryKey;
+  label: string;
+  shortLabel: string;
+  icon: string;
+  description: string;
+}
+
+export const EVENT_CATEGORIES: EventCategoryMeta[] = [
+  {
+    key: "insecurity-wars",
+    label: "Insecurity, Wars & Armed Conflicts",
+    shortLabel: "Wars & Conflicts",
+    icon: "ShieldAlert",
+    description: "Active kinetic warfare, military strikes, missile defenses, insurgencies, and armed troop deployments.",
+  },
+  {
+    key: "financials-markets",
+    label: "Financials, Markets & Macro Economy",
+    shortLabel: "Markets & Macro",
+    icon: "TrendingUp",
+    description: "Equities, bond yields, central bank rate decisions, debt cycles, inflation, and bank contagion.",
+  },
+  {
+    key: "geopolitics-diplomacy",
+    label: "Geopolitics, Diplomacy & Trade Chokepoints",
+    shortLabel: "Geopolitics & Diplomacy",
+    icon: "Globe",
+    description: "International treaties, diplomatic summits, bilateral sanctions, maritime chokepoints, and trade tariffs.",
+  },
+  {
+    key: "energy-commodities",
+    label: "Energy, Commodities & Cost of Living",
+    shortLabel: "Energy & Commodities",
+    icon: "Zap",
+    description: "Crude oil, natural gas, agriculture, critical minerals, electricity grids, and household cost of living.",
+  },
+  {
+    key: "tech-health",
+    label: "Tech, AI & Global Health Crises",
+    shortLabel: "Tech & Health",
+    icon: "Cpu",
+    description: "Artificial intelligence, semiconductor supply chains, cybersecurity breaches, and global health outbreaks.",
+  },
+];
+
 export type ImportanceGrade = "S-Tier" | "A-Tier" | "B-Tier";
 
 export interface ClusteredNewsArticle {
@@ -26,6 +79,9 @@ export interface ClusteredNewsEvent {
   id: string;
   title: string;
   summary: string;
+  categoryKey: EventCategoryKey;
+  categoryLabel: string;
+  category: string;
   primaryNiche: GeopoliticalNiche;
   sensitivityLabel: string;
   consensusBadge: string;
@@ -395,6 +451,87 @@ export function calculateImportanceScore(
 }
 
 /**
+ * Classifies an event into one of the 5 top-level global categories
+ */
+export function classifyEventCategory(text: string): {
+  key: EventCategoryKey;
+  label: string;
+} {
+  const lower = text.toLowerCase();
+
+  const scores: Record<EventCategoryKey, number> = {
+    "insecurity-wars": 0,
+    "financials-markets": 0,
+    "geopolitics-diplomacy": 0,
+    "energy-commodities": 0,
+    "tech-health": 0,
+  };
+
+  const keywords: Record<EventCategoryKey, string[]> = {
+    "insecurity-wars": [
+      "war", "military", "missile", "drone", "strike", "airstrike", "army", "troops", "rebel",
+      "combat", "attack", "invasion", "ceasefire", "weapons", "soldier", "artillery", "naval",
+      "tank", "airbase", "hamas", "gaza", "israel", "hezbollah", "lebanon", "ukraine", "russia",
+      "sudan", "yemen", "houthi", "syria", "somalia", "kiev", "kyiv", "moscow", "tehran",
+      "defense", "casualty", "casualties", "killed", "hostage", "shelling", "clash", "clashes",
+      "cluster-bomb", "warhead", "icbm", "ballistic", "insurgent", "terrorist", "militia", "hostages"
+    ],
+    "financials-markets": [
+      "stock", "stocks", "market", "wall street", "nasdaq", "s&p", "dow", "fed", "federal reserve",
+      "interest rate", "rate hike", "rate cut", "inflation", "cpi", "central bank", "bond", "bonds",
+      "treasury", "yields", "recession", "gdp", "currency", "dollar", "euro", "yen", "yuan", "ruble",
+      "banking", "bank", "banks", "debt", "deficit", "investor", "private equity", "hedge fund",
+      "bankruptcy", "default", "trading", "crypto", "bitcoin", "ethereum", "binance", "imf", "world bank"
+    ],
+    "energy-commodities": [
+      "oil", "crude", "brent", "wti", "opec", "gas", "natural gas", "lng", "refinery", "pipeline",
+      "electricity", "power grid", "blackout", "power outage", "fuel", "diesel", "petrol", "uranium",
+      "lithium", "copper", "gold", "critical minerals", "rare earths", "food price", "food prices",
+      "cost of living", "wheat", "grain", "fertilizer", "harvest", "grocery", "utilities"
+    ],
+    "tech-health": [
+      "ai", "artificial intelligence", "chip", "chips", "semiconductor", "microchip", "nvidia",
+      "tsmc", "asml", "openai", "deepseek", "anthropic", "compute", "gpu", "datacenter", "data center",
+      "quantum", "cyber", "hack", "hackers", "malware", "biotech", "health", "virus", "outbreak",
+      "pandemic", "disease", "who", "cdc", "vaccine", "vaccination", "infection", "contagion",
+      "patient", "hospital", "pathogen", "ebola", "cholera", "marburg", "mpox", "bird flu", "h5n1",
+      "quarantine", "cancer"
+    ],
+    "geopolitics-diplomacy": [
+      "diplomacy", "diplomatic", "summit", "treaty", "pact", "sanctions", "sanction", "un",
+      "united nations", "nato", "brics", "embassy", "ambassador", "bilateral", "tariff", "tariffs",
+      "trade war", "export ban", "export controls", "borders", "straits", "suez", "panama canal",
+      "malacca", "red sea", "bab al-mandab", "south china sea", "sovereignty", "geopolitics",
+      "election", "vote", "parliament", "foreign minister", "president", "prime minister", "congress",
+      "impeach", "law", "court"
+    ],
+  };
+
+  for (const [key, kwList] of Object.entries(keywords) as [EventCategoryKey, string[]][]) {
+    for (const kw of kwList) {
+      if (lower.includes(kw)) {
+        scores[key] += kw.length > 5 ? 2 : 1;
+      }
+    }
+  }
+
+  let bestKey: EventCategoryKey = "geopolitics-diplomacy";
+  let maxScore = 0;
+  for (const [key, score] of Object.entries(scores) as [EventCategoryKey, number][]) {
+    if (score > maxScore) {
+      maxScore = score;
+      bestKey = key;
+    }
+  }
+
+  const categoryMeta = EVENT_CATEGORIES.find((c) => c.key === bestKey) || EVENT_CATEGORIES[2];
+  return {
+    key: bestKey,
+    label: categoryMeta.label,
+  };
+}
+
+/**
  * Calculates sensitivity classification for backwards compatibility and tags
  */
 export function calculateSensitivity(text: string): { score: number; label: string; primaryNiche: GeopoliticalNiche } {
@@ -625,16 +762,24 @@ export function clusterAndScoreHeadlines(rawArticles: RawArticleItem[], query?: 
     const { primaryNiche, label: sensitivityLabel, score: sensitivityScore } =
       calculateSensitivity(fullClusterText);
 
-    // Consensus badge formatted as: 📡 6 Global Outlets (4 Regions)
+    const { key: categoryKey, label: categoryLabel } = classifyEventCategory(fullClusterText);
+
+    // Consensus badge showing which major global outlets are reporting this same event right now
+    const topOutletsSample = distinctOutlets.slice(0, 3).join(", ");
+    const remainingOutletsCount = distinctOutlets.length - 3;
+    const outletsSuffix = remainingOutletsCount > 0 ? ` +${remainingOutletsCount} more` : "";
     const consensusBadge =
       distinctOutlets.length >= 2
-        ? `📡 ${distinctOutlets.length} Global Outlets (${distinctRegions.length} Regions)`
-        : `📡 1 Global Outlet (${distinctRegions[0] || "Global"})`;
+        ? `🚨 ${distinctOutlets.length} Outlets: ${topOutletsSample}${outletsSuffix}`
+        : `📡 ${distinctOutlets[0] || "Global Wire"}`;
 
     return {
       id: c.id,
       title: bestArticle.title,
       summary,
+      categoryKey,
+      categoryLabel,
+      category: categoryLabel,
       primaryNiche,
       sensitivityLabel,
       consensusBadge,

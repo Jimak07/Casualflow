@@ -11,6 +11,7 @@ export const API_ENDPOINTS = {
   synthesize: `${API_BASE_URL}/api/synthesize`,
   storyline: `${API_BASE_URL}/api/storyline`,
   script: `${API_BASE_URL}/api/script`,
+  briefing: `${API_BASE_URL}/api/briefing`,
   models: `${API_BASE_URL}/api/models`,
   health: `${API_BASE_URL}/health`,
 };
