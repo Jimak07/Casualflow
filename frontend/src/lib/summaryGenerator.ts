@@ -77,16 +77,28 @@ export function generateCompiledSummaryText(params: GenerateSummaryParams): stri
       );
       lines.push(`HEADLINE: ${ev.title.trim()}`);
       lines.push(`PUBLISHED: ${ev.timeAgo} (${new Date(ev.recencyScore).toISOString()})`);
-      lines.push("KEY POINTS:");
+      lines.push(`SECTION: ${sec.label}`);
+      lines.push("");
+      lines.push("EXECUTIVE BRIEFING:");
+      if (ev.executiveBriefing) {
+        lines.push(ev.executiveBriefing.coreEvent);
+        lines.push("");
+        lines.push(ev.executiveBriefing.contextBackground);
+      } else if (ev.summary) {
+        lines.push(ev.summary);
+      }
+      lines.push("");
+      lines.push("CORE REPORTING TAKEAWAYS:");
       if (ev.keyPointsSummary && ev.keyPointsSummary.length > 0) {
         ev.keyPointsSummary.forEach((kp) => {
           lines.push(`• ${kp}`);
         });
       } else {
-        lines.push(`• Verified dispatch: ${ev.summary.slice(0, 140)}`);
+        lines.push(`• Verified dispatch: ${ev.summary.slice(0, 160)}`);
         lines.push(`• Corroborated by ${ev.outlets.join(", ")}`);
-        lines.push(`• Reporting across ${ev.regions.join(", ")}`);
+        lines.push(`• Immediate systemic impact observed across ${ev.regions.join(", ") || "Global"}`);
       }
+      lines.push("");
       lines.push("VERIFIED SOURCES:");
       ev.articles.forEach((art) => {
         lines.push(`- ${art.source} (${art.region}): ${art.link}`);

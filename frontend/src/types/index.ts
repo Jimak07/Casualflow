@@ -269,11 +269,17 @@ export const EVENT_CATEGORIES: EventCategoryMeta[] = [
   },
 ];
 
+export interface ExecutiveBriefing {
+  coreEvent: string;
+  contextBackground: string;
+}
+
 export interface KeyFactsData {
   figures: string[];
   dates: string[];
   quotes: string[];
   bulletSummary: string[];
+  executiveBriefing?: ExecutiveBriefing;
 }
 
 export interface BriefingPackArticle {
@@ -302,6 +308,7 @@ export interface BriefingPackData {
   }[];
   keyFacts?: KeyFactsData;
   briefingPackText?: string;
+  executiveBriefing?: ExecutiveBriefing;
 }
 
 export interface StoryPitch {
@@ -422,6 +429,7 @@ export interface ClusteredNewsEvent {
   id: string;
   title: string;
   summary: string;
+  executiveBriefing?: ExecutiveBriefing;
   categoryKey?: EventCategoryKey;
   categoryLabel?: string;
   category?: string;

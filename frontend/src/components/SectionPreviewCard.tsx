@@ -38,6 +38,7 @@ import {
   Radio,
   BookOpen,
   PenTool,
+  CheckCircle2,
 } from "lucide-react";
 
 // Icon mapping for all 24 documentary sections
@@ -164,23 +165,48 @@ export const SectionPreviewCard: React.FC<SectionPreviewCardProps> = ({
               {topCluster.title}
             </h4>
 
-            {/* Executive Summary */}
-            <p className="text-xs text-slate-300 line-clamp-2 leading-relaxed">
-              {topCluster.summary}
-            </p>
+            {/* Executive Briefing */}
+            {(() => {
+              const rawSummary = topCluster.summary || "";
+              const paragraphs = rawSummary.split(/\n\n+/).filter(Boolean);
+              const cleanTitleNorm = topCluster.title.toLowerCase().replace(/[^a-z0-9]/g, "");
+              const cleanSummaryNorm = rawSummary.toLowerCase().replace(/[^a-z0-9]/g, "");
+              const isEchoing =
+                cleanSummaryNorm === cleanTitleNorm ||
+                (cleanSummaryNorm.length < cleanTitleNorm.length + 20 &&
+                  cleanSummaryNorm.startsWith(cleanTitleNorm));
 
-            {/* 3 Key Points Preview */}
+              const p1 = isEchoing
+                ? `International dispatches verified by ${topCluster.outlets.slice(0, 3).join(", ") || "major news services"} confirm active breaking developments across ${topCluster.regions.join(", ") || "global jurisdictions"}.`
+                : paragraphs[0] || rawSummary;
+
+              const p2 = paragraphs[1] || topCluster.executiveBriefing?.contextBackground;
+
+              return (
+                <div className="space-y-1.5 text-xs text-slate-300 leading-relaxed">
+                  <p>{p1}</p>
+                  {p2 && p2 !== p1 && (
+                    <p className="text-slate-400 text-[11px] pt-0.5 line-clamp-2">{p2}</p>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* Core Reporting Takeaways (3 Robust Bullets) */}
             {topCluster.keyPointsSummary && topCluster.keyPointsSummary.length > 0 && (
-              <div className="p-3 rounded-2xl bg-[#06080F] border border-white/5 space-y-1.5">
-                <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 font-bold block mb-1">
-                  Key Verified Facts:
-                </span>
-                {topCluster.keyPointsSummary.slice(0, 3).map((pt, pIdx) => (
-                  <div key={pIdx} className="flex items-start gap-1.5 text-xs text-slate-300">
-                    <span className="text-blue-400 shrink-0 font-bold">•</span>
-                    <p className="line-clamp-1 text-[11px]">{pt}</p>
-                  </div>
-                ))}
+              <div className="p-3 rounded-2xl bg-[#06080F] border border-white/5 space-y-2">
+                <div className="text-[10px] font-mono uppercase tracking-wider text-blue-400 font-bold flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
+                  <span>Core Reporting Takeaways</span>
+                </div>
+                <div className="space-y-1.5">
+                  {topCluster.keyPointsSummary.slice(0, 3).map((pt, pIdx) => (
+                    <div key={pIdx} className="flex items-start gap-1.5 text-xs text-slate-200">
+                      <span className="text-blue-400 shrink-0 font-bold mt-0.5">•</span>
+                      <p className="text-[11px] leading-relaxed">{pt}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 

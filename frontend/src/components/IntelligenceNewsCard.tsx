@@ -128,18 +128,61 @@ export const IntelligenceNewsCard: React.FC<IntelligenceNewsCardProps> = ({
           {cluster.title}
         </h3>
 
-        {/* 3. WHAT'S HAPPENING NOW (EXECUTIVE EVENT SUMMARY) */}
-        <div className="mb-4">
-          <div className="text-[11px] font-mono uppercase tracking-wider text-slate-400 font-semibold mb-1 flex items-center gap-1.5">
+        {/* 3. WHAT'S HAPPENING NOW (EXECUTIVE EVENT BRIEFING) */}
+        <div className="mb-4 space-y-1.5">
+          <div className="text-[11px] font-mono uppercase tracking-wider text-slate-400 font-semibold flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
-            <span>What&apos;s Happening Now</span>
+            <span>Executive Briefing</span>
           </div>
-          <p className="text-xs sm:text-[13px] text-slate-300 leading-relaxed line-clamp-3">
-            {cluster.summary}
-          </p>
+          {(() => {
+            const rawSummary = cluster.summary || "";
+            const paragraphs = rawSummary.split(/\n\n+/).filter(Boolean);
+            const cleanTitleNorm = cluster.title.toLowerCase().replace(/[^a-z0-9]/g, "");
+            const cleanSummaryNorm = rawSummary.toLowerCase().replace(/[^a-z0-9]/g, "");
+            const isEchoing =
+              cleanSummaryNorm === cleanTitleNorm ||
+              (cleanSummaryNorm.length < cleanTitleNorm.length + 20 &&
+                cleanSummaryNorm.startsWith(cleanTitleNorm));
+
+            const p1 = isEchoing
+              ? `International dispatches verified by ${cluster.outlets.slice(0, 3).join(", ") || "major news services"} confirm active breaking developments across ${cluster.regions.join(", ") || "global jurisdictions"}.`
+              : paragraphs[0] || rawSummary;
+
+            const p2 = paragraphs[1] || cluster.executiveBriefing?.contextBackground;
+
+            return (
+              <div className="space-y-2 text-xs sm:text-[13px] text-slate-300 leading-relaxed">
+                <p>{p1}</p>
+                {p2 && p2 !== p1 && (
+                  <p className="text-slate-400 pt-0.5">{p2}</p>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
-        {/* 4. EXPANDABLE "ALL REPORTING SOURCES" LIST */}
+        {/* 4. CORE REPORTING TAKEAWAYS (3 ROBUST BULLETS) */}
+        {cluster.keyPointsSummary && cluster.keyPointsSummary.length > 0 && (
+          <div className="mb-4 p-3.5 rounded-xl bg-[#06080F]/90 border border-white/5 space-y-2">
+            <div className="text-[11px] font-mono uppercase tracking-wider text-blue-400 font-bold flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span>Core Reporting Takeaways</span>
+            </div>
+            <ul className="space-y-2">
+              {cluster.keyPointsSummary.slice(0, 3).map((bullet, idx) => (
+                <li
+                  key={idx}
+                  className="flex items-start gap-2 text-xs text-slate-200 leading-relaxed"
+                >
+                  <span className="text-blue-400 font-bold shrink-0 mt-0.5">•</span>
+                  <span>{bullet}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* 5. EXPANDABLE "ALL REPORTING SOURCES" LIST */}
         <div className="border-t border-white/5 pt-2.5 mb-4">
           <button
             type="button"

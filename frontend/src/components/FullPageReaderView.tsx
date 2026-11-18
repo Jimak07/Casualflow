@@ -484,49 +484,106 @@ ${scriptText}
         )}
 
         {/* ─────────────────────────────────────────────────────────────────────────
-            TAB 2: FULL NEWS BRIEFING VIEW (SCRAPED ARTICLES & FACT BREAKDOWN)
+            TAB 2: FULL NEWS BRIEFING VIEW (SCRAPED ARTICLES & FACT BREAKDOWN SIDE-BY-SIDE)
         ───────────────────────────────────────────────────────────────────────── */}
         {activeTab === "briefing" && (
-          <div className="space-y-8 animate-in fade-in">
-            {/* 1. Ground-Truth Key Facts & Executive Digest */}
-            {briefingPack?.keyFacts && (
-              <div className="bg-[#0E131F] rounded-2xl p-6 border border-white/10 space-y-5">
-                <div className="flex items-center gap-2 text-sm font-mono uppercase tracking-wider text-blue-400 font-bold border-b border-white/5 pb-3">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                  <span>Ground-Truth Fact Sheet & Key Numbers</span>
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start animate-in fade-in">
+            {/* ── LEFT COLUMN: EXECUTIVE BRIEFING, 3 CORE TAKEAWAYS & KEY FACTS ── */}
+            <div className="lg:col-span-5 space-y-6 lg:sticky lg:top-6">
+              {/* 1. Executive Briefing Card */}
+              <div className="bg-[#0E131F] rounded-2xl p-6 border border-white/10 space-y-4 shadow-lg shadow-black/20">
+                <div className="flex items-center justify-between border-b border-white/5 pb-3">
+                  <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider text-blue-400 font-bold">
+                    <BookOpen className="w-4 h-4 text-blue-400" />
+                    <span>Executive Briefing</span>
+                  </div>
+                  <span className="text-[11px] font-mono text-slate-400">
+                    {cluster?.consensusBadge || briefingPack?.consensusBadge || "Verified Wire"}
+                  </span>
                 </div>
 
-                {/* Bullets */}
-                {briefingPack.keyFacts.bulletSummary?.length > 0 && (
-                  <div className="space-y-2">
-                    <div className="text-xs font-mono uppercase tracking-wider text-slate-400 font-semibold">
-                      Core Reporting Takeaways:
+                {(() => {
+                  const exec =
+                    briefingPack?.executiveBriefing ||
+                    cluster?.executiveBriefing ||
+                    null;
+                  const rawSummary = cluster?.summary || "";
+                  const paragraphs = rawSummary.split(/\n\n+/).filter(Boolean);
+
+                  const coreEvent = exec?.coreEvent || paragraphs[0] || rawSummary;
+                  const context = exec?.contextBackground || paragraphs[1] || null;
+
+                  return (
+                    <div className="space-y-3.5 text-xs sm:text-sm text-slate-200 leading-relaxed">
+                      <div>
+                        <div className="text-[10px] font-mono uppercase tracking-wider text-emerald-400 font-bold mb-1">
+                          The Core Event:
+                        </div>
+                        <p>{coreEvent}</p>
+                      </div>
+                      {context && context !== coreEvent && (
+                        <div className="pt-2 border-t border-white/5">
+                          <div className="text-[10px] font-mono uppercase tracking-wider text-blue-400 font-bold mb-1">
+                            Context & Strategic Background:
+                          </div>
+                          <p className="text-slate-300">{context}</p>
+                        </div>
+                      )}
                     </div>
-                    <ul className="space-y-2">
-                      {briefingPack.keyFacts.bulletSummary.map((item, idx) => (
-                        <li key={idx} className="text-xs sm:text-sm text-slate-200 flex items-start gap-2">
-                          <span className="text-blue-500 font-bold mt-0.5">•</span>
+                  );
+                })()}
+              </div>
+
+              {/* 2. Core Reporting Takeaways (3 Robust Bullets) */}
+              <div className="bg-[#0E131F] rounded-2xl p-6 border border-white/10 space-y-4 shadow-lg shadow-black/20">
+                <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider text-emerald-400 font-bold border-b border-white/5 pb-3">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <span>Core Reporting Takeaways</span>
+                </div>
+
+                {(() => {
+                  const bullets =
+                    briefingPack?.keyFacts?.bulletSummary?.length
+                      ? briefingPack.keyFacts.bulletSummary
+                      : cluster?.keyPointsSummary?.length
+                      ? cluster.keyPointsSummary
+                      : [];
+
+                  return bullets.length > 0 ? (
+                    <ul className="space-y-3">
+                      {bullets.slice(0, 3).map((item, idx) => (
+                        <li
+                          key={idx}
+                          className="text-xs sm:text-[13px] text-slate-200 flex items-start gap-2.5 leading-relaxed"
+                        >
+                          <span className="text-blue-400 font-bold shrink-0 mt-0.5">•</span>
                           <span>{item}</span>
                         </li>
                       ))}
                     </ul>
-                  </div>
-                )}
+                  ) : (
+                    <p className="text-xs text-slate-400 italic">
+                      Synthesizing reporting dispatches...
+                    </p>
+                  );
+                })()}
+              </div>
 
-                {/* Grid: Hard Figures & Quotes */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+              {/* 3. Hard Figures & Official Quotes */}
+              {briefingPack?.keyFacts && (
+                <div className="space-y-4">
                   {/* Figures */}
                   {briefingPack.keyFacts.figures?.length > 0 && (
-                    <div className="bg-[#06080F] p-4 rounded-xl border border-white/5 space-y-2">
+                    <div className="bg-[#0E131F] p-5 rounded-2xl border border-white/10 space-y-2.5">
                       <div className="text-xs font-mono text-emerald-400 font-bold flex items-center gap-1.5">
                         <DollarSign className="w-3.5 h-3.5" />
-                        <span>Key Figures & Economic Metrics:</span>
+                        <span>Key Figures & Economic Metrics</span>
                       </div>
                       <div className="flex flex-wrap gap-1.5">
                         {briefingPack.keyFacts.figures.map((fig, idx) => (
                           <span
                             key={idx}
-                            className="px-2 py-1 rounded-md text-xs font-mono bg-emerald-500/10 text-emerald-300 border border-emerald-500/20"
+                            className="px-2.5 py-1 rounded-md text-xs font-mono bg-emerald-500/10 text-emerald-300 border border-emerald-500/20"
                           >
                             {fig}
                           </span>
@@ -537,14 +594,14 @@ ${scriptText}
 
                   {/* Quotes */}
                   {briefingPack.keyFacts.quotes?.length > 0 && (
-                    <div className="bg-[#06080F] p-4 rounded-xl border border-white/5 space-y-2">
+                    <div className="bg-[#0E131F] p-5 rounded-2xl border border-white/10 space-y-2.5">
                       <div className="text-xs font-mono text-amber-400 font-bold flex items-center gap-1.5">
                         <Quote className="w-3.5 h-3.5" />
-                        <span>Direct Statements & Official Quotes:</span>
+                        <span>Direct Statements & Official Quotes</span>
                       </div>
-                      <div className="space-y-1.5">
+                      <div className="space-y-2">
                         {briefingPack.keyFacts.quotes.map((q, idx) => (
-                          <p key={idx} className="text-xs italic text-slate-300">
+                          <p key={idx} className="text-xs italic text-slate-300 border-l-2 border-amber-500/40 pl-2.5 py-0.5">
                             {q}
                           </p>
                         ))}
@@ -552,49 +609,49 @@ ${scriptText}
                     </div>
                   )}
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* 2. Historical Context & Background Timeline */}
-            {briefingPack?.backgroundTimeline && briefingPack.backgroundTimeline.length > 0 && (
-              <div className="bg-[#0E131F] rounded-2xl p-6 border border-white/10 space-y-4">
-                <div className="flex items-center gap-2 text-sm font-mono uppercase tracking-wider text-amber-400 font-bold border-b border-white/5 pb-3">
-                  <Calendar className="w-4 h-4 text-amber-400" />
-                  <span>Historical Context & Developing Timeline</span>
-                </div>
+              {/* 4. Historical Context & Background Timeline */}
+              {briefingPack?.backgroundTimeline && briefingPack.backgroundTimeline.length > 0 && (
+                <div className="bg-[#0E131F] rounded-2xl p-5 border border-white/10 space-y-3.5">
+                  <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider text-amber-400 font-bold border-b border-white/5 pb-2.5">
+                    <Calendar className="w-4 h-4 text-amber-400" />
+                    <span>Historical Context & Developing Timeline</span>
+                  </div>
 
-                <div className="space-y-3">
-                  {briefingPack.backgroundTimeline.map((item, idx) => (
-                    <div
-                      key={idx}
-                      className="p-3.5 rounded-xl bg-[#06080F] border border-white/5 flex flex-col gap-1.5"
-                    >
-                      <div className="flex items-center justify-between text-xs font-mono">
-                        <span className="font-bold text-amber-400">{item.source}</span>
-                        {item.url && (
-                          <a
-                            href={item.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-slate-400 hover:text-white flex items-center gap-1"
-                          >
-                            <span>Link</span>
-                            <ExternalLink className="w-3 h-3" />
-                          </a>
-                        )}
+                  <div className="space-y-3">
+                    {briefingPack.backgroundTimeline.map((item, idx) => (
+                      <div
+                        key={idx}
+                        className="p-3 rounded-xl bg-[#06080F] border border-white/5 flex flex-col gap-1"
+                      >
+                        <div className="flex items-center justify-between text-[11px] font-mono">
+                          <span className="font-bold text-amber-400">{item.source}</span>
+                          {item.url && (
+                            <a
+                              href={item.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-slate-400 hover:text-white flex items-center gap-1"
+                            >
+                              <span>Link</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          )}
+                        </div>
+                        <h4 className="text-xs font-bold text-white">{item.title}</h4>
+                        <p className="text-[11px] text-slate-300 leading-relaxed">{item.snippet}</p>
                       </div>
-                      <h4 className="text-sm font-bold text-white">{item.title}</h4>
-                      <p className="text-xs text-slate-300 leading-relaxed">{item.snippet}</p>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
 
-            {/* 3. Full-Text Scraped Articles from Reporting Outlets */}
-            <div className="space-y-6">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+            {/* ── RIGHT COLUMN: FULL-TEXT SCRAPED ARTICLES STREAM ── */}
+            <div className="lg:col-span-7 space-y-6">
+              <div className="flex items-center justify-between pb-2 border-b border-white/10">
+                <h3 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
                   <Radio className="w-4 h-4 text-blue-400" />
                   <span>Full-Text Reporting Across Global Feeds</span>
                 </h3>
@@ -607,7 +664,7 @@ ${scriptText}
                 briefingPack.articles.map((art, idx) => (
                   <article
                     key={idx}
-                    className="bg-[#0E131F] rounded-2xl p-6 sm:p-8 border border-white/10 space-y-4"
+                    className="bg-[#0E131F] rounded-2xl p-6 sm:p-7 border border-white/10 space-y-4 hover:border-blue-500/30 transition-all shadow-lg shadow-black/20"
                   >
                     {/* Header */}
                     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 pb-3">
@@ -633,12 +690,12 @@ ${scriptText}
                       )}
                     </div>
 
-                    <h4 className="text-lg sm:text-xl font-bold text-white leading-snug">
+                    <h4 className="text-base sm:text-lg font-bold text-white leading-snug">
                       {art.title}
                     </h4>
 
                     {/* Article Body */}
-                    <div className="text-slate-200 text-sm sm:text-base leading-relaxed space-y-3 font-normal">
+                    <div className="text-slate-200 text-xs sm:text-sm leading-relaxed space-y-3 font-normal">
                       {art.paragraphs && art.paragraphs.length > 0 ? (
                         art.paragraphs.map((p, pIdx) => <p key={pIdx}>{p}</p>)
                       ) : (
@@ -653,7 +710,7 @@ ${scriptText}
                 cluster.articles.map((art, idx) => (
                   <article
                     key={idx}
-                    className="bg-[#0E131F] rounded-2xl p-6 border border-white/10 space-y-3"
+                    className="bg-[#0E131F] rounded-2xl p-6 border border-white/10 space-y-3 shadow-lg shadow-black/20"
                   >
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold font-mono text-blue-400">
