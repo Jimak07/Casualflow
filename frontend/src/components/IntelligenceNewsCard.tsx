@@ -248,26 +248,26 @@ export const IntelligenceNewsCard: React.FC<IntelligenceNewsCardProps> = ({
         </div>
       </div>
 
-      {/* 5. TWO ACTION BUTTONS ON EVERY CARD */}
+      {/* 5. PRIMARY ACTION BUTTONS ON EVERY CARD */}
       <div className="pt-3 border-t border-white/5 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
-        {/* Action 1: Read Full News Briefing */}
+        {/* Action 1: Read Deep Intelligence Dossier */}
         <button
           type="button"
           onClick={() => onReadBriefing(cluster)}
           className="flex-1 px-3 py-2 rounded-xl text-xs font-semibold text-slate-200 bg-[#141C2E] hover:bg-[#1C263D] hover:text-white border border-white/10 hover:border-blue-500/40 transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
         >
           <BookOpen className="w-3.5 h-3.5 text-blue-400" />
-          <span>📖 Read Full News Briefing</span>
+          <span>📖 Read Intelligence Dossier</span>
         </button>
 
-        {/* Action 2: Generate Pure Script */}
+        {/* Action 2: Synthesize Dossier */}
         <button
           type="button"
           onClick={() => onGenerateScript(cluster)}
           className="flex-1 px-3 py-2 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 active:scale-[0.98] shadow-md shadow-blue-600/30 transition-all flex items-center justify-center gap-2"
         >
           <Sparkles className="w-3.5 h-3.5 text-blue-200" />
-          <span>✍️ Generate Pure Script</span>
+          <span>⚡ Deep Intelligence Dossier</span>
         </button>
       </div>
     </article>

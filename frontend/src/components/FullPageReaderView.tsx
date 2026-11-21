@@ -14,22 +14,22 @@ import {
   Radio,
   History,
   Trash2,
-  FolderOpen,
   Calendar,
   DollarSign,
   Quote,
   CheckCircle2,
   RefreshCw,
-  Share2,
   FileText,
-  ShieldCheck,
+  ShieldAlert,
+  ChevronDown,
+  ChevronUp,
+  TrendingUp,
   X,
 } from "lucide-react";
 import {
   ClusteredNewsEvent,
   BriefingPackData,
   SavedScriptEntry,
-  VerifiedSource,
 } from "@/types";
 
 interface FullPageReaderViewProps {
@@ -46,6 +46,79 @@ interface FullPageReaderViewProps {
   onLoadSavedScript: (entry: SavedScriptEntry) => void;
 }
 
+interface ParsedDossierSection {
+  number: string;
+  title: string;
+  badge: string;
+  paragraphs: string[];
+}
+
+function parseDossierSections(text: string): ParsedDossierSection[] {
+  if (!text) return [];
+
+  const rawBlocks = text.split(/(?=^#{1,3}\s+)/m);
+  const sections: ParsedDossierSection[] = [];
+
+  for (const block of rawBlocks) {
+    const trimmed = block.trim();
+    if (!trimmed) continue;
+
+    const lines = trimmed.split("\n");
+    const headerLine = lines[0] || "";
+    const headerMatch = headerLine.match(/^#{1,3}\s+(?:(\d+)\.?\s*)?(.*)$/);
+
+    if (headerMatch) {
+      const num = headerMatch[1] || `${sections.length + 1}`;
+      const title = headerMatch[2].trim();
+      const bodyLines = lines.slice(1).join("\n").trim();
+      const paragraphs = bodyLines
+        .split(/\n\n+/)
+        .map((p) => p.trim())
+        .filter(Boolean);
+
+      let badge = "Section Analysis";
+      const tLower = title.toLowerCase();
+      if (tLower.includes("overview")) badge = "Core Event & Outcomes";
+      else if (tLower.includes("fact") || tLower.includes("quote")) badge = "Ground-Truth Evidence & Data";
+      else if (tLower.includes("historical") || tLower.includes("context") || tLower.includes("got here")) badge = "Strategic Precedents & History";
+      else if (tLower.includes("implication") || tLower.includes("geopolitical") || tLower.includes("economic")) badge = "Geopolitical & Market Impact";
+
+      sections.push({
+        number: num,
+        title,
+        badge,
+        paragraphs,
+      });
+    } else {
+      const paragraphs = trimmed
+        .split(/\n\n+/)
+        .map((p) => p.trim())
+        .filter(Boolean);
+      if (sections.length > 0) {
+        sections[sections.length - 1].paragraphs.push(...paragraphs);
+      } else {
+        sections.push({
+          number: "1",
+          title: "Executive Overview",
+          badge: "Core Event & Outcomes",
+          paragraphs,
+        });
+      }
+    }
+  }
+
+  if (sections.length === 0 && text.trim()) {
+    sections.push({
+      number: "1",
+      title: "Deep Intelligence Dossier",
+      badge: "Comprehensive Analysis",
+      paragraphs: text.split(/\n\n+/).map((p) => p.trim()).filter(Boolean),
+    });
+  }
+
+  return sections;
+}
+
 export const FullPageReaderView: React.FC<FullPageReaderViewProps> = ({
   cluster,
   scriptText,
@@ -54,30 +127,25 @@ export const FullPageReaderView: React.FC<FullPageReaderViewProps> = ({
   generationStep = "",
   modelName = "gpt-5.6-sol",
   providerName = "AgentRouter",
-  initialTab = "script",
   onBackToHomepage,
   onGenerateScript,
   onLoadSavedScript,
 }) => {
-  const [activeTab, setActiveTab] = useState<"script" | "briefing">(initialTab);
   const [copied, setCopied] = useState(false);
-  const [autoSaveEnabled, setAutoSaveEnabled] = useState<boolean>(true);
   const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState(false);
   const [savedLibrary, setSavedLibrary] = useState<SavedScriptEntry[]>([]);
+  const [expandedArticles, setExpandedArticles] = useState<Record<number, boolean>>({});
 
-  // Sync initial tab when changed
+  // Auto-generate dossier if not present when opened
   useEffect(() => {
-    setActiveTab(initialTab);
-  }, [initialTab]);
+    if (!scriptText && !isGenerating && cluster) {
+      onGenerateScript(cluster);
+    }
+  }, [cluster, scriptText, isGenerating, onGenerateScript]);
 
-  // Load Auto-Save preference and Saved History from localStorage
+  // Load Saved History from localStorage
   useEffect(() => {
     if (typeof window !== "undefined") {
-      const savedAutoSave = localStorage.getItem("causalflow_auto_download");
-      if (savedAutoSave !== null) {
-        setAutoSaveEnabled(savedAutoSave === "true");
-      }
-
       const storedLib = localStorage.getItem("causalflow_saved_library");
       if (storedLib) {
         try {
@@ -90,24 +158,15 @@ export const FullPageReaderView: React.FC<FullPageReaderViewProps> = ({
     }
   }, []);
 
-  // Toggle Auto-Save
-  const handleToggleAutoSave = (checked: boolean) => {
-    setAutoSaveEnabled(checked);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("causalflow_auto_download", String(checked));
-    }
-  };
-
   // Helper to generate filename slug
   const getFileSlug = useCallback(() => {
-    const rawTitle = cluster?.title || "jimak-script";
+    const rawTitle = cluster?.title || "intelligence-dossier";
     const slug = rawTitle
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
-      .slice(0, 45)
+      .slice(0, 50)
       .replace(/^-|-$/g, "");
-    const dateStr = new Date().toISOString().slice(0, 10);
-    return `${slug}-${dateStr}-jimak-script`;
+    return `${slug}-briefing`;
   }, [cluster?.title]);
 
   // Download File Helper
@@ -124,39 +183,77 @@ export const FullPageReaderView: React.FC<FullPageReaderViewProps> = ({
     URL.revokeObjectURL(url);
   }, []);
 
-  // Download .TXT
+  // Complete Dossier Export Text (Dossier + Verified Source URLs)
+  const getDossierExportText = useCallback(() => {
+    const content = scriptText || "";
+    const title = cluster?.title || "Deep Intelligence Dossier";
+    const category = cluster?.category || cluster?.categoryLabel || "Geopolitics & Strategic Affairs";
+    const dateStr = new Date().toLocaleDateString("en-US", { dateStyle: "full" });
+
+    const rawArticles = briefingPack?.articles || cluster?.articles || [];
+    const sourcesList = rawArticles
+      .map((art: any) => `- ${art.source || "Verified Source"}: ${art.url || art.link || ""}`)
+      .filter((line: string) => !line.endsWith(": "))
+      .join("\n");
+
+    return `================================================================================
+CAUSALFLOW // DEEP FACTUAL INTELLIGENCE DOSSIER
+TOPIC: ${title}
+CATEGORY: ${category}
+DATE: ${dateStr}
+ENGINE: ${providerName} (${modelName})
+================================================================================
+
+${content}
+
+================================================================================
+VERIFIED PRIMARY SOURCES:
+================================================================================
+${sourcesList || "Verified global wire services and reporting networks."}
+`;
+  }, [scriptText, cluster, briefingPack, providerName, modelName]);
+
+  // Download .TXT: [Title-Slug]-briefing.txt
   const handleDownloadTxt = () => {
     if (!scriptText) return;
     const filename = `${getFileSlug()}.txt`;
-    triggerDownload(scriptText, filename, "text/plain;charset=utf-8");
+    triggerDownload(getDossierExportText(), filename, "text/plain;charset=utf-8");
   };
 
   // Download .MD
   const handleDownloadMd = () => {
     if (!scriptText) return;
-    const title = cluster?.title || "Documentary Voiceover Screenplay";
+    const title = cluster?.title || "Deep Intelligence Dossier";
     const category = cluster?.category || cluster?.categoryLabel || "Geopolitics";
-    const date = new Date().toLocaleDateString("en-US", {
-      dateStyle: "full",
-    });
+    const date = new Date().toLocaleDateString("en-US", { dateStyle: "full" });
+
+    const rawArticles = briefingPack?.articles || cluster?.articles || [];
+    const sourcesList = rawArticles
+      .map((art: any) => `- **${art.source || "Source"}**: [${art.title || "Article Link"}](${art.url || art.link || ""})`)
+      .filter((line: string) => !line.endsWith("()"))
+      .join("\n");
 
     const mdContent = `# ${title}
-**Category:** ${category} | **Date:** ${date} | **Model:** ${providerName} (${modelName})
+**Category:** ${category} | **Date:** ${date} | **Engine:** ${providerName} (${modelName})
 
 ---
 
 ${scriptText}
 
 ---
-*Generated by CausalFlow Documentary Intelligence*
+
+## Verified Primary Sources
+${sourcesList || "Verified global reporting dispatches."}
+
+*Generated by CausalFlow Deep Intelligence Briefing Engine*
 `;
     const filename = `${getFileSlug()}.md`;
     triggerDownload(mdContent, filename, "text/markdown;charset=utf-8");
   };
 
-  // Copy Full Text
+  // 1-Click Copy Full Dossier + Sources
   const handleCopy = async () => {
-    const textToCopy = activeTab === "script" ? scriptText : briefingPack?.briefingPackText || "";
+    const textToCopy = getDossierExportText();
     if (!textToCopy) return;
 
     try {
@@ -164,7 +261,6 @@ ${scriptText}
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
     } catch {
-      // Fallback
       const textArea = document.createElement("textarea");
       textArea.value = textToCopy;
       document.body.appendChild(textArea);
@@ -186,25 +282,33 @@ ${scriptText}
     }
   };
 
-  // Calculate statistics
+  // Word count & read time
   const wordCount = useMemo(() => {
     if (!scriptText) return 0;
     return scriptText.trim().split(/\s+/).filter(Boolean).length;
   }, [scriptText]);
 
-  const estimatedMinutes = Math.max(1, Math.round(wordCount / 145));
+  const estimatedMinutes = Math.max(1, Math.round(wordCount / 220));
 
-  // Render pure script paragraphs with inline source citations styled nicely
-  const scriptParagraphs = useMemo(() => {
-    if (!scriptText) return [];
-    return scriptText
-      .split(/\n\n+/)
-      .map((p) => p.trim())
-      .filter((p) => p.length > 0);
+  // Parse sections
+  const dossierSections = useMemo(() => {
+    return parseDossierSections(scriptText);
   }, [scriptText]);
 
+  // Verified scraped articles
+  const verifiedArticles = useMemo(() => {
+    return briefingPack?.articles || cluster?.articles || [];
+  }, [briefingPack?.articles, cluster?.articles]);
+
+  const toggleExpandArticle = (idx: number) => {
+    setExpandedArticles((prev) => ({
+      ...prev,
+      [idx]: !prev[idx],
+    }));
+  };
+
   return (
-    <div className="min-h-screen bg-[#06080F] text-slate-100 flex flex-col">
+    <div className="min-h-screen bg-[#06080F] text-slate-100 flex flex-col selection:bg-blue-600/30">
       {/* ─────────────────────────────────────────────────────────────────────────────
           1. TOP NAVIGATION & ACTION BAR
       ───────────────────────────────────────────────────────────────────────────── */}
@@ -220,53 +324,72 @@ ${scriptText}
             <span>Back to Global Events</span>
           </button>
 
-          <span className="text-xs font-mono text-slate-400 hidden sm:inline-block">
-            {cluster?.category || cluster?.categoryLabel || "Global Geopolitics"}
+          <span className="text-xs font-mono uppercase tracking-wider text-blue-400 font-bold hidden sm:inline-block px-2.5 py-1 rounded-lg bg-blue-500/10 border border-blue-500/20">
+            {cluster?.category || cluster?.categoryLabel || "Global Intelligence"}
           </span>
         </div>
 
-        {/* Center: View Switcher Tabs (Script vs Briefing) */}
-        <div className="flex items-center bg-[#0E131F] p-1 rounded-xl border border-white/10">
-          <button
-            type="button"
-            onClick={() => setActiveTab("script")}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-              activeTab === "script"
-                ? "bg-blue-600 text-white shadow-sm shadow-blue-600/40"
-                : "text-slate-400 hover:text-white"
-            }`}
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Pure Voiceover Script</span>
-          </button>
+        {/* Center: Live Word Count & Model Engine Badges */}
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-blue-600/15 text-blue-300 border border-blue-500/30 font-mono text-xs font-bold">
+            <Radio className="w-3 h-3 text-blue-400" />
+            <span>
+              {providerName} • {modelName}
+            </span>
+          </span>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab("briefing")}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-              activeTab === "briefing"
-                ? "bg-blue-600 text-white shadow-sm shadow-blue-600/40"
-                : "text-slate-400 hover:text-white"
-            }`}
-          >
-            <BookOpen className="w-3.5 h-3.5" />
-            <span>Full News Briefing</span>
-          </button>
+          {wordCount > 0 ? (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-mono text-xs font-bold shadow-sm shadow-emerald-500/10">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+              <span>
+                {wordCount} words • ~{estimatedMinutes}m read
+              </span>
+            </span>
+          ) : isGenerating ? (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-blue-500/15 text-blue-300 border border-blue-500/30 font-mono text-xs animate-pulse">
+              <RefreshCw className="w-3 h-3 text-blue-400 animate-spin" />
+              <span>Synthesizing Dossier...</span>
+            </span>
+          ) : null}
         </div>
 
-        {/* Right: Actions (Download .TXT, .MD, Copy, Auto-Save, Saved History) */}
+        {/* Right: Primary Action Buttons (Copy Text, Download .TXT, Download .MD, Library) */}
         <div className="flex items-center gap-2">
+          {/* Copy Full Text */}
+          <button
+            type="button"
+            onClick={handleCopy}
+            disabled={!scriptText && !isGenerating}
+            className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+              copied
+                ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/30"
+                : "bg-white/10 hover:bg-white/15 text-white border border-white/15 active:scale-95"
+            }`}
+            title="Copy entire 800-1,000 word dossier + verified sources to clipboard"
+          >
+            {copied ? (
+              <>
+                <Check className="w-3.5 h-3.5 text-white" />
+                <span>Copied Dossier!</span>
+              </>
+            ) : (
+              <>
+                <Copy className="w-3.5 h-3.5 text-blue-400" />
+                <span>Copy Text</span>
+              </>
+            )}
+          </button>
+
           {/* Download .TXT */}
           <button
             type="button"
             onClick={handleDownloadTxt}
             disabled={!scriptText}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-200 bg-[#141C2E] hover:bg-[#1E2942] hover:text-white border border-white/10 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-            title="Download clean plain-text script directly to device"
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 border border-blue-400/40 shadow-md shadow-blue-600/30 disabled:opacity-40 disabled:cursor-not-allowed transition-all active:scale-95"
+            title="Download complete dossier + sources as clean .txt file"
           >
-            <Download className="w-3.5 h-3.5 text-blue-400" />
-            <span className="hidden md:inline">💾 Download .TXT</span>
-            <span className="md:hidden">.TXT</span>
+            <Download className="w-3.5 h-3.5 text-white" />
+            <span>Download .TXT</span>
           </button>
 
           {/* Download .MD */}
@@ -274,43 +397,24 @@ ${scriptText}
             type="button"
             onClick={handleDownloadMd}
             disabled={!scriptText}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-200 bg-[#141C2E] hover:bg-[#1E2942] hover:text-white border border-white/10 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-300 bg-white/5 hover:bg-white/10 hover:text-white border border-white/10 disabled:opacity-40 disabled:cursor-not-allowed transition-all hidden md:inline-flex"
             title="Download formatted Markdown file"
           >
-            <FileText className="w-3.5 h-3.5 text-blue-400" />
-            <span className="hidden md:inline">📄 .MD</span>
-          </button>
-
-          {/* Copy Full Text */}
-          <button
-            type="button"
-            onClick={handleCopy}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-200 bg-white/5 hover:bg-white/10 hover:text-white border border-white/10 transition-colors"
-          >
-            {copied ? (
-              <>
-                <Check className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="text-emerald-400 font-bold">Copied!</span>
-              </>
-            ) : (
-              <>
-                <Copy className="w-3.5 h-3.5 text-slate-400" />
-                <span className="hidden sm:inline">Copy Text</span>
-              </>
-            )}
+            <FileText className="w-3.5 h-3.5 text-slate-400" />
+            <span>.MD</span>
           </button>
 
           {/* Saved History Drawer Toggle */}
           <button
             type="button"
             onClick={() => setIsHistoryDrawerOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-300 bg-white/5 hover:bg-white/10 border border-white/10 transition-colors"
-            title="View saved scripts on this device"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-300 bg-white/5 hover:bg-white/10 border border-white/10 transition-colors"
+            title="View saved dossiers on this device"
           >
             <History className="w-3.5 h-3.5 text-amber-400" />
             <span className="hidden lg:inline">Saved Library</span>
             {savedLibrary.length > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-500/20 text-amber-300 font-mono">
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-500/20 text-amber-300 font-mono font-bold">
                 {savedLibrary.length}
               </span>
             )}
@@ -319,373 +423,249 @@ ${scriptText}
       </header>
 
       {/* ─────────────────────────────────────────────────────────────────────────────
-          2. AUTO-SAVE TOGGLE & STORY HEADER BANNER
+          2. MAIN CONTENT AREA
       ───────────────────────────────────────────────────────────────────────────── */}
-      <div className="bg-[#0A0E18] border-b border-white/5 px-4 sm:px-8 py-3 flex flex-wrap items-center justify-between gap-3">
-        {/* Consensus & Model Info */}
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          {cluster?.consensusBadge && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-400 border border-amber-500/25 font-mono text-[11px] font-bold">
-              {cluster.consensusBadge}
+      <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-8 py-8 sm:py-12 space-y-10">
+        {/* Story Header */}
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
+            <span className="text-blue-400 uppercase tracking-wider font-bold">
+              {cluster?.category || cluster?.categoryLabel || "Strategic Intelligence"}
             </span>
-          )}
-
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20 font-mono text-[11px]">
-            <Radio className="w-3 h-3 text-blue-400" />
-            <span>
-              Engine: {providerName} • {modelName}
-            </span>
-          </span>
-
-          {wordCount > 0 && (
-            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono text-[11px] font-bold">
-              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-              <span>
-                {wordCount} words • ~{estimatedMinutes}m spoken runtime
+            <span className="text-slate-600">•</span>
+            <span className="text-slate-400">{cluster?.timeAgo || "Breaking Dispatch"}</span>
+            {cluster?.regions && cluster.regions.length > 0 && (
+              <>
+                <span className="text-slate-600">•</span>
+                <span className="text-slate-400">{cluster.regions.join(", ")}</span>
+              </>
+            )}
+            {cluster?.consensusBadge && (
+              <span className="ml-auto inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-mono font-bold bg-amber-500/15 text-amber-400 border border-amber-500/25">
+                {cluster.consensusBadge}
               </span>
-            </span>
-          )}
-        </div>
-
-        {/* Auto-Save Toggle */}
-        <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-mono text-slate-300">
-          <input
-            type="checkbox"
-            checked={autoSaveEnabled}
-            onChange={(e) => handleToggleAutoSave(e.target.checked)}
-            className="w-3.5 h-3.5 rounded border-white/20 text-blue-600 focus:ring-blue-500 bg-[#0E131F]"
-          />
-          <span>Auto-Save Script to Device on Generation</span>
-        </label>
-      </div>
-
-      {/* ─────────────────────────────────────────────────────────────────────────────
-          3. MAIN FULL-WIDTH CONTENT AREA
-      ───────────────────────────────────────────────────────────────────────────── */}
-      <main className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-8 py-8 sm:py-12">
-        {/* Story Title & Meta */}
-        <div className="mb-8">
-          <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider text-blue-400 mb-2">
-            <span>{cluster?.category || cluster?.categoryLabel || "Global Event Briefing"}</span>
-            <span>•</span>
-            <span>{cluster?.timeAgo || "Breaking"}</span>
+            )}
           </div>
 
-          <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-white tracking-tight leading-tight mb-4">
-            {cluster?.title || "Global Event Analysis"}
+          <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-white tracking-tight leading-snug">
+            {cluster?.title || "Global Intelligence Dossier"}
           </h1>
 
           {cluster?.summary && (
-            <p className="text-base sm:text-lg text-slate-300 leading-relaxed border-l-2 border-blue-500 pl-4 py-1 italic">
+            <p className="text-base sm:text-lg text-slate-300 leading-relaxed border-l-2 border-blue-500 pl-4 py-1 italic bg-blue-500/5 rounded-r-xl">
               {cluster.summary}
             </p>
           )}
         </div>
 
         {/* ─────────────────────────────────────────────────────────────────────────
-            TAB 1: PURE SCRIPT VIEW (UBUNTU PIPELINE STYLE — ZERO CLUTTER)
+            3. DEEP INTELLIGENCE DOSSIER (4 STRUCTURED SECTIONS)
         ───────────────────────────────────────────────────────────────────────── */}
-        {activeTab === "script" && (
-          <div className="bg-[#0E131F] rounded-2xl p-6 sm:p-10 border border-white/10 shadow-2xl shadow-black/50">
-            {isGenerating ? (
-              /* Loading State */
-              <div className="py-20 flex flex-col items-center justify-center text-center gap-4 animate-in fade-in">
-                <RefreshCw className="w-10 h-10 text-blue-500 animate-spin" />
-                <div className="flex flex-col gap-1.5">
-                  <h3 className="text-lg font-bold text-white">
-                    Writing Jimak Screenplay with AgentRouter...
-                  </h3>
-                  <p className="text-sm text-slate-400 font-mono">
-                    {generationStep ||
-                      "Scraping article text, linking historical baseline, and writing flowing continuous voiceover..."}
-                  </p>
-                </div>
-                <div className="text-xs text-blue-400 font-mono bg-blue-500/10 px-3 py-1 rounded-full border border-blue-500/20">
-                  Model: {modelName} • Zero mock templates
-                </div>
+        <section className="space-y-6">
+          {isGenerating ? (
+            /* Loading State */
+            <div className="bg-[#0E131F] rounded-3xl p-12 sm:p-16 border border-blue-500/30 shadow-2xl shadow-blue-950/20 text-center flex flex-col items-center justify-center gap-5">
+              <RefreshCw className="w-12 h-12 text-blue-500 animate-spin" />
+              <div className="space-y-2 max-w-lg">
+                <h3 className="text-xl font-extrabold text-white">
+                  Synthesizing Deep Intelligence Dossier...
+                </h3>
+                <p className="text-sm text-slate-400 font-mono leading-relaxed">
+                  {generationStep ||
+                    "Scraping full publisher articles, resolving Google News redirects, and generating 800-1,000 word factual dossier with AgentRouter (gpt-5.6-sol)..."}
+                </p>
               </div>
-            ) : scriptText ? (
-              /* Continuous Pure Script */
-              <div className="space-y-6">
-                <div className="flex items-center justify-between pb-4 border-b border-white/10 text-xs font-mono text-slate-400">
-                  <span>JIMAK DOCUMENTARY VOICEOVER SCREENPLAY</span>
-                  <span>{wordCount} WORDS • CONTINUOUS VOICE</span>
-                </div>
-
-                <div className="text-slate-100 text-base sm:text-[17px] leading-[1.85] font-normal space-y-6">
-                  {scriptParagraphs.map((paragraph, idx) => {
-                    // Check if paragraph contains [Source: ...] citations
-                    const parts = paragraph.split(/(\[Source:[^\]]+\])/gi);
-
-                    return (
-                      <p key={idx} className="tracking-wide">
-                        {parts.map((part, pIdx) => {
-                          if (part.startsWith("[Source:") && part.endsWith("]")) {
-                            return (
-                              <span
-                                key={pIdx}
-                                className="inline-block mx-1 px-2 py-0.5 rounded text-[11px] font-mono font-medium bg-blue-500/15 text-blue-300 border border-blue-500/25"
-                              >
-                                {part}
-                              </span>
-                            );
-                          }
-                          return part;
-                        })}
-                      </p>
-                    );
-                  })}
-                </div>
-
-                {/* Footer Signoff Verification */}
-                <div className="pt-6 border-t border-white/10 flex flex-wrap items-center justify-between gap-3 text-xs font-mono text-slate-400">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                    <span>Pure Spoken Flow • Verified Source Citations</span>
+              <div className="flex flex-wrap items-center justify-center gap-2 text-xs font-mono text-blue-300">
+                <span className="px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20">
+                  Target: 800 – 1,000 Words
+                </span>
+                <span className="px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20">
+                  4 Comprehensive Sections
+                </span>
+                <span className="px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20">
+                  Inline Source Citations
+                </span>
+              </div>
+            </div>
+          ) : scriptText ? (
+            /* Dossier Display */
+            <div className="space-y-6">
+              {/* Dossier Banner */}
+              <div className="bg-gradient-to-r from-blue-900/30 via-[#0E131F] to-[#0E131F] rounded-2xl px-6 py-4 border border-blue-500/30 flex flex-wrap items-center justify-between gap-3 shadow-lg shadow-black/40">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-xl bg-blue-600/20 border border-blue-500/30 text-blue-400">
+                    <BookOpen className="w-4 h-4" />
                   </div>
+                  <div>
+                    <h2 className="text-sm sm:text-base font-extrabold text-white tracking-wide uppercase">
+                      Deep Intelligence Dossier
+                    </h2>
+                    <p className="text-xs text-slate-400 font-mono">
+                      800–1,000 Word Ground-Truth Analysis • 4 Dedicated Strategic Sections
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleCopy}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-200 bg-white/5 hover:bg-white/10 border border-white/10 transition-colors"
+                  >
+                    <Copy className="w-3.5 h-3.5 text-blue-400" />
+                    <span>{copied ? "Copied!" : "Copy Full Text"}</span>
+                  </button>
 
                   <button
                     type="button"
                     onClick={handleDownloadTxt}
-                    className="text-blue-400 hover:text-blue-300 underline font-semibold flex items-center gap-1"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 transition-colors shadow-sm"
                   >
                     <Download className="w-3.5 h-3.5" />
-                    <span>Download Script File (.txt)</span>
+                    <span>Download .TXT</span>
                   </button>
                 </div>
               </div>
-            ) : (
-              /* Empty / Not yet generated */
-              <div className="py-16 text-center flex flex-col items-center justify-center gap-4">
-                <Sparkles className="w-12 h-12 text-blue-400 opacity-60" />
-                <div className="flex flex-col gap-1 max-w-md">
-                  <h3 className="text-lg font-bold text-white">
-                    Pure Jimak Script Not Yet Generated
-                  </h3>
-                  <p className="text-xs sm:text-sm text-slate-400">
-                    Click below to scrape the full news articles across reporting outlets
-                    and write the complete continuous documentary screenplay.
-                  </p>
-                </div>
 
-                {cluster && (
-                  <button
-                    type="button"
-                    onClick={() => onGenerateScript(cluster)}
-                    className="px-6 py-3 rounded-xl text-sm font-bold text-white bg-blue-600 hover:bg-blue-500 active:scale-95 shadow-lg shadow-blue-600/30 transition-all flex items-center gap-2"
-                  >
-                    <Sparkles className="w-4 h-4" />
-                    <span>✍️ Generate Pure Jimak Script</span>
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ─────────────────────────────────────────────────────────────────────────
-            TAB 2: FULL NEWS BRIEFING VIEW (SCRAPED ARTICLES & FACT BREAKDOWN SIDE-BY-SIDE)
-        ───────────────────────────────────────────────────────────────────────── */}
-        {activeTab === "briefing" && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start animate-in fade-in">
-            {/* ── LEFT COLUMN: EXECUTIVE BRIEFING, 3 CORE TAKEAWAYS & KEY FACTS ── */}
-            <div className="lg:col-span-5 space-y-6 lg:sticky lg:top-6">
-              {/* 1. Executive Briefing Card */}
-              <div className="bg-[#0E131F] rounded-2xl p-6 border border-white/10 space-y-4 shadow-lg shadow-black/20">
-                <div className="flex items-center justify-between border-b border-white/5 pb-3">
-                  <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider text-blue-400 font-bold">
-                    <BookOpen className="w-4 h-4 text-blue-400" />
-                    <span>Executive Briefing</span>
-                  </div>
-                  <span className="text-[11px] font-mono text-slate-400">
-                    {cluster?.consensusBadge || briefingPack?.consensusBadge || "Verified Wire"}
-                  </span>
-                </div>
-
-                {(() => {
-                  const exec =
-                    briefingPack?.executiveBriefing ||
-                    cluster?.executiveBriefing ||
-                    null;
-                  const rawSummary = cluster?.summary || "";
-                  const paragraphs = rawSummary.split(/\n\n+/).filter(Boolean);
-
-                  const coreEvent = exec?.coreEvent || paragraphs[0] || rawSummary;
-                  const context = exec?.contextBackground || paragraphs[1] || null;
-
-                  return (
-                    <div className="space-y-3.5 text-xs sm:text-sm text-slate-200 leading-relaxed">
-                      <div>
-                        <div className="text-[10px] font-mono uppercase tracking-wider text-emerald-400 font-bold mb-1">
-                          The Core Event:
-                        </div>
-                        <p>{coreEvent}</p>
-                      </div>
-                      {context && context !== coreEvent && (
-                        <div className="pt-2 border-t border-white/5">
-                          <div className="text-[10px] font-mono uppercase tracking-wider text-blue-400 font-bold mb-1">
-                            Context & Strategic Background:
-                          </div>
-                          <p className="text-slate-300">{context}</p>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
-              </div>
-
-              {/* 2. Core Reporting Takeaways (3 Robust Bullets) */}
-              <div className="bg-[#0E131F] rounded-2xl p-6 border border-white/10 space-y-4 shadow-lg shadow-black/20">
-                <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider text-emerald-400 font-bold border-b border-white/5 pb-3">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                  <span>Core Reporting Takeaways</span>
-                </div>
-
-                {(() => {
-                  const bullets =
-                    briefingPack?.keyFacts?.bulletSummary?.length
-                      ? briefingPack.keyFacts.bulletSummary
-                      : cluster?.keyPointsSummary?.length
-                      ? cluster.keyPointsSummary
-                      : [];
-
-                  return bullets.length > 0 ? (
-                    <ul className="space-y-3">
-                      {bullets.slice(0, 3).map((item, idx) => (
-                        <li
-                          key={idx}
-                          className="text-xs sm:text-[13px] text-slate-200 flex items-start gap-2.5 leading-relaxed"
-                        >
-                          <span className="text-blue-400 font-bold shrink-0 mt-0.5">•</span>
-                          <span>{item}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-xs text-slate-400 italic">
-                      Synthesizing reporting dispatches...
-                    </p>
-                  );
-                })()}
-              </div>
-
-              {/* 3. Hard Figures & Official Quotes */}
-              {briefingPack?.keyFacts && (
-                <div className="space-y-4">
-                  {/* Figures */}
-                  {briefingPack.keyFacts.figures?.length > 0 && (
-                    <div className="bg-[#0E131F] p-5 rounded-2xl border border-white/10 space-y-2.5">
-                      <div className="text-xs font-mono text-emerald-400 font-bold flex items-center gap-1.5">
-                        <DollarSign className="w-3.5 h-3.5" />
-                        <span>Key Figures & Economic Metrics</span>
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {briefingPack.keyFacts.figures.map((fig, idx) => (
-                          <span
-                            key={idx}
-                            className="px-2.5 py-1 rounded-md text-xs font-mono bg-emerald-500/10 text-emerald-300 border border-emerald-500/20"
-                          >
-                            {fig}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Quotes */}
-                  {briefingPack.keyFacts.quotes?.length > 0 && (
-                    <div className="bg-[#0E131F] p-5 rounded-2xl border border-white/10 space-y-2.5">
-                      <div className="text-xs font-mono text-amber-400 font-bold flex items-center gap-1.5">
-                        <Quote className="w-3.5 h-3.5" />
-                        <span>Direct Statements & Official Quotes</span>
-                      </div>
-                      <div className="space-y-2">
-                        {briefingPack.keyFacts.quotes.map((q, idx) => (
-                          <p key={idx} className="text-xs italic text-slate-300 border-l-2 border-amber-500/40 pl-2.5 py-0.5">
-                            {q}
-                          </p>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* 4. Historical Context & Background Timeline */}
-              {briefingPack?.backgroundTimeline && briefingPack.backgroundTimeline.length > 0 && (
-                <div className="bg-[#0E131F] rounded-2xl p-5 border border-white/10 space-y-3.5">
-                  <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider text-amber-400 font-bold border-b border-white/5 pb-2.5">
-                    <Calendar className="w-4 h-4 text-amber-400" />
-                    <span>Historical Context & Developing Timeline</span>
-                  </div>
-
-                  <div className="space-y-3">
-                    {briefingPack.backgroundTimeline.map((item, idx) => (
-                      <div
-                        key={idx}
-                        className="p-3 rounded-xl bg-[#06080F] border border-white/5 flex flex-col gap-1"
-                      >
-                        <div className="flex items-center justify-between text-[11px] font-mono">
-                          <span className="font-bold text-amber-400">{item.source}</span>
-                          {item.url && (
-                            <a
-                              href={item.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-slate-400 hover:text-white flex items-center gap-1"
-                            >
-                              <span>Link</span>
-                              <ExternalLink className="w-3 h-3" />
-                            </a>
-                          )}
-                        </div>
-                        <h4 className="text-xs font-bold text-white">{item.title}</h4>
-                        <p className="text-[11px] text-slate-300 leading-relaxed">{item.snippet}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* ── RIGHT COLUMN: FULL-TEXT SCRAPED ARTICLES STREAM ── */}
-            <div className="lg:col-span-7 space-y-6">
-              <div className="flex items-center justify-between pb-2 border-b border-white/10">
-                <h3 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
-                  <Radio className="w-4 h-4 text-blue-400" />
-                  <span>Full-Text Reporting Across Global Feeds</span>
-                </h3>
-                <span className="text-xs font-mono text-slate-400">
-                  {briefingPack?.articles?.length || cluster?.articles?.length || 0} Scraped Articles
-                </span>
-              </div>
-
-              {briefingPack?.articles && briefingPack.articles.length > 0 ? (
-                briefingPack.articles.map((art, idx) => (
+              {/* 4 Structured Section Cards */}
+              <div className="space-y-6">
+                {dossierSections.map((sec, idx) => (
                   <article
                     key={idx}
-                    className="bg-[#0E131F] rounded-2xl p-6 sm:p-7 border border-white/10 space-y-4 hover:border-blue-500/30 transition-all shadow-lg shadow-black/20"
+                    className="bg-[#0E131F] rounded-3xl p-6 sm:p-9 border border-white/10 hover:border-blue-500/30 transition-all shadow-xl shadow-black/30 space-y-5"
+                  >
+                    {/* Section Header */}
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/5 pb-4">
+                      <div className="flex items-center gap-3">
+                        <span className="w-8 h-8 rounded-xl bg-blue-600/15 border border-blue-500/30 text-blue-400 font-mono text-sm font-extrabold flex items-center justify-center shrink-0">
+                          {sec.number.padStart(2, "0")}
+                        </span>
+                        <h3 className="text-lg sm:text-xl font-extrabold text-white tracking-tight">
+                          {sec.title}
+                        </h3>
+                      </div>
+
+                      <span className="px-3 py-1 rounded-full text-xs font-mono font-medium bg-white/5 text-slate-300 border border-white/5">
+                        {sec.badge}
+                      </span>
+                    </div>
+
+                    {/* Section Paragraphs with Inline Citations */}
+                    <div className="space-y-4">
+                      {sec.paragraphs.map((para, pIdx) => {
+                        const parts = para.split(/(\[Source:[^\]]+\])/gi);
+                        return (
+                          <p
+                            key={pIdx}
+                            className="text-slate-200 text-base sm:text-[17px] leading-[1.85] font-normal tracking-wide"
+                          >
+                            {parts.map((part, partIdx) => {
+                              if (part.startsWith("[Source:") && part.endsWith("]")) {
+                                return (
+                                  <span
+                                    key={partIdx}
+                                    className="inline-flex items-center mx-1 px-2.5 py-0.5 rounded-md text-xs font-mono font-semibold bg-blue-500/15 text-blue-300 border border-blue-500/30"
+                                  >
+                                    {part}
+                                  </span>
+                                );
+                              }
+                              return part;
+                            })}
+                          </p>
+                        );
+                      })}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </div>
+          ) : (
+            /* Empty State */
+            <div className="bg-[#0E131F] rounded-3xl p-12 text-center flex flex-col items-center justify-center gap-5 border border-white/10">
+              <Sparkles className="w-12 h-12 text-blue-400 opacity-60" />
+              <div className="space-y-1.5 max-w-md">
+                <h3 className="text-xl font-bold text-white">
+                  Intelligence Dossier Not Yet Synthesized
+                </h3>
+                <p className="text-sm text-slate-400">
+                  Scrape full publisher articles across global newsrooms and write the complete 800 to 1,000-word factual intelligence briefing.
+                </p>
+              </div>
+
+              {cluster && (
+                <button
+                  type="button"
+                  onClick={() => onGenerateScript(cluster)}
+                  className="px-6 py-3 rounded-2xl text-sm font-bold text-white bg-blue-600 hover:bg-blue-500 active:scale-95 shadow-lg shadow-blue-600/30 transition-all flex items-center gap-2"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span>Generate Deep Intelligence Dossier</span>
+                </button>
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* ─────────────────────────────────────────────────────────────────────────
+            4. VERIFIED PRIMARY SOURCE ARTICLES & GROUND-TRUTH DISPATCHES
+        ───────────────────────────────────────────────────────────────────────── */}
+        <section className="space-y-6 pt-4 border-t border-white/10">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-lg sm:text-xl font-bold text-white flex items-center gap-2.5">
+                <Radio className="w-5 h-5 text-blue-400" />
+                <span>Verified Source Articles & Ground-Truth Dispatches</span>
+              </h3>
+              <p className="text-xs text-slate-400 font-mono mt-0.5">
+                Direct publisher URLs decoded from Google News redirects & scraped bodies
+              </p>
+            </div>
+
+            <span className="px-3 py-1 rounded-full text-xs font-mono font-bold bg-blue-600/10 text-blue-300 border border-blue-500/20">
+              {verifiedArticles.length} Verified Sources
+            </span>
+          </div>
+
+          <div className="space-y-4">
+            {verifiedArticles.length > 0 ? (
+              verifiedArticles.map((art: any, idx: number) => {
+                const isExpanded = !!expandedArticles[idx];
+                const paragraphs: string[] = art.paragraphs || [];
+                const displayedParagraphs = isExpanded
+                  ? paragraphs
+                  : paragraphs.slice(0, 3);
+                const hasMore = paragraphs.length > 3;
+                const directUrl = art.url || art.link || "";
+
+                return (
+                  <article
+                    key={idx}
+                    className="bg-[#0E131F] rounded-2xl p-6 sm:p-7 border border-white/10 hover:border-blue-500/30 transition-all shadow-md space-y-4"
                   >
                     {/* Header */}
                     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 pb-3">
                       <div className="flex items-center gap-2">
                         <span className="px-2.5 py-1 rounded-md text-xs font-bold font-mono bg-blue-500/15 text-blue-400 border border-blue-500/25">
-                          {art.source}
+                          {art.source || "Verified Wire"}
                         </span>
                         {art.region && (
-                          <span className="text-xs font-mono text-slate-400">• {art.region}</span>
+                          <span className="text-xs font-mono text-slate-400">
+                            • {art.region}
+                          </span>
                         )}
                       </div>
 
-                      {art.url && (
+                      {directUrl && (
                         <a
-                          href={art.url}
+                          href={directUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-mono text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 transition-colors"
+                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-mono font-semibold text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/25 transition-colors"
+                          title="Open original article in new tab"
                         >
-                          <span>Read on {art.source}</span>
-                          <ExternalLink className="w-3 h-3" />
+                          <span>Read Direct Source</span>
+                          <ExternalLink className="w-3.5 h-3.5" />
                         </a>
                       )}
                     </div>
@@ -694,141 +674,116 @@ ${scriptText}
                       {art.title}
                     </h4>
 
-                    {/* Article Body */}
-                    <div className="text-slate-200 text-xs sm:text-sm leading-relaxed space-y-3 font-normal">
-                      {art.paragraphs && art.paragraphs.length > 0 ? (
-                        art.paragraphs.map((p, pIdx) => <p key={pIdx}>{p}</p>)
+                    {/* Paragraphs */}
+                    <div className="text-slate-300 text-xs sm:text-sm leading-relaxed space-y-2.5 font-normal">
+                      {displayedParagraphs.length > 0 ? (
+                        displayedParagraphs.map((p, pIdx) => (
+                          <p key={pIdx} className="border-l-2 border-white/5 pl-3 py-0.5">
+                            {p}
+                          </p>
+                        ))
                       ) : (
                         <p className="text-slate-400 italic">
                           {art.snippet || "Full text available on original publisher's website."}
                         </p>
                       )}
                     </div>
+
+                    {/* Expand/Collapse Toggle */}
+                    {hasMore && (
+                      <button
+                        type="button"
+                        onClick={() => toggleExpandArticle(idx)}
+                        className="inline-flex items-center gap-1 text-xs font-mono text-blue-400 hover:text-blue-300 transition-colors pt-1"
+                      >
+                        {isExpanded ? (
+                          <>
+                            <ChevronUp className="w-3.5 h-3.5" />
+                            <span>Show fewer paragraphs</span>
+                          </>
+                        ) : (
+                          <>
+                            <ChevronDown className="w-3.5 h-3.5" />
+                            <span>Read all {paragraphs.length} scraped paragraphs</span>
+                          </>
+                        )}
+                      </button>
+                    )}
                   </article>
-                ))
-              ) : cluster?.articles && cluster.articles.length > 0 ? (
-                cluster.articles.map((art, idx) => (
-                  <article
-                    key={idx}
-                    className="bg-[#0E131F] rounded-2xl p-6 border border-white/10 space-y-3 shadow-lg shadow-black/20"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold font-mono text-blue-400">
-                        {art.source} • {art.region}
-                      </span>
-                      {art.link && (
-                        <a
-                          href={art.link}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-blue-400 hover:underline flex items-center gap-1"
-                        >
-                          <span>Original</span>
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
-                      )}
-                    </div>
-                    <h4 className="text-base font-bold text-white">{art.title}</h4>
-                    <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-                      {art.snippet}
-                    </p>
-                  </article>
-                ))
-              ) : (
-                <div className="text-center py-12 text-slate-400 text-sm">
-                  No article text gathered yet. Click &quot;Generate Pure Script&quot; to gather and synthesize.
-                </div>
-              )}
-            </div>
+                );
+              })
+            ) : (
+              <div className="bg-[#0E131F] rounded-2xl p-8 text-center text-slate-400 text-sm border border-white/5">
+                No primary source articles gathered yet. Click &quot;Generate Deep Intelligence Dossier&quot; to gather and synthesize.
+              </div>
+            )}
           </div>
-        )}
+        </section>
       </main>
 
       {/* ─────────────────────────────────────────────────────────────────────────────
-          4. SAVED HISTORY DRAWER MODAL
+          5. SAVED HISTORY DRAWER MODAL
       ───────────────────────────────────────────────────────────────────────────── */}
       {isHistoryDrawerOpen && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex justify-end animate-in fade-in duration-200">
-          <div
-            className="w-full max-w-md bg-[#0E131F] h-full border-l border-white/10 p-6 flex flex-col justify-between shadow-2xl animate-in slide-in-from-right duration-250"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div>
-              <div className="flex items-center justify-between pb-4 border-b border-white/10 mb-5">
-                <div className="flex items-center gap-2">
-                  <History className="w-5 h-5 text-amber-400" />
-                  <h3 className="text-lg font-bold text-white">Saved Screenplays</h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsHistoryDrawerOpen(false)}
-                  className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10"
-                >
-                  <X className="w-5 h-5" />
-                </button>
+        <div className="fixed inset-0 z-50 flex items-center justify-end bg-black/70 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-[#0E131F] border-l border-white/10 w-full max-w-md h-full flex flex-col shadow-2xl">
+            {/* Drawer Header */}
+            <div className="p-5 border-b border-white/10 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <History className="w-5 h-5 text-amber-400" />
+                <h3 className="text-base font-bold text-white">Saved Dossiers Library</h3>
               </div>
-
-              {savedLibrary.length === 0 ? (
-                <div className="text-center py-16 text-slate-400 space-y-2">
-                  <FolderOpen className="w-10 h-10 text-slate-500 mx-auto opacity-50" />
-                  <p className="text-sm">No saved scripts yet.</p>
-                  <p className="text-xs text-slate-400">
-                    When you generate a script, it is saved automatically to your device library.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3 max-h-[calc(100vh-160px)] overflow-y-auto pr-1">
-                  {savedLibrary.map((item) => (
-                    <div
-                      key={item.id}
-                      className="p-4 rounded-xl bg-[#06080F] border border-white/10 hover:border-blue-500/40 transition-colors flex flex-col gap-2"
-                    >
-                      <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
-                        <span className="text-blue-400 font-semibold">{item.category}</span>
-                        <span>{item.savedAt}</span>
-                      </div>
-
-                      <h4 className="text-sm font-bold text-white line-clamp-2 leading-snug">
-                        {item.title}
-                      </h4>
-
-                      <div className="flex items-center justify-between pt-2 border-t border-white/5">
-                        <span className="text-xs font-mono text-slate-400">
-                          {item.wordCount} words • {item.runtime}
-                        </span>
-
-                        <div className="flex items-center gap-2">
-                          {/* Load Button (Step 3: Fix Load Button) */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              onLoadSavedScript(item);
-                              setIsHistoryDrawerOpen(false);
-                            }}
-                            className="px-3 py-1 rounded-lg text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 shadow-sm transition-all"
-                          >
-                            Load
-                          </button>
-
-                          {/* Delete */}
-                          <button
-                            type="button"
-                            onClick={(e) => handleDeleteSavedItem(item.id, e)}
-                            className="p-1 rounded-md text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                            title="Delete from local history"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <button
+                type="button"
+                onClick={() => setIsHistoryDrawerOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
-            <div className="pt-4 border-t border-white/10 text-xs font-mono text-slate-400 text-center">
-              Stored locally on this browser • Privacy guaranteed
+            {/* Drawer List */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-3">
+              {savedLibrary.length === 0 ? (
+                <div className="text-center py-16 text-slate-400 text-sm">
+                  No dossiers saved on this device yet.
+                </div>
+              ) : (
+                savedLibrary.map((item) => (
+                  <div
+                    key={item.id}
+                    onClick={() => {
+                      onLoadSavedScript(item);
+                      setIsHistoryDrawerOpen(false);
+                    }}
+                    className="p-4 rounded-xl bg-[#06080F] border border-white/5 hover:border-blue-500/40 cursor-pointer transition-all space-y-2 group"
+                  >
+                    <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
+                      <span className="text-blue-400 font-bold">{item.category}</span>
+                      <span>{item.savedAt}</span>
+                    </div>
+
+                    <h4 className="text-sm font-bold text-white group-hover:text-blue-300 transition-colors line-clamp-2">
+                      {item.title}
+                    </h4>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-xs font-mono text-emerald-400">
+                        {item.wordCount} words
+                      </span>
+
+                      <button
+                        type="button"
+                        onClick={(e) => handleDeleteSavedItem(item.id, e)}
+                        className="p-1 rounded text-slate-500 hover:text-red-400 transition-colors"
+                        title="Delete from saved library"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>

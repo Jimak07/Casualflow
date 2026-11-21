@@ -5,6 +5,7 @@ export interface ScrapedArticle {
   title: string;
   source: string;
   url: string;
+  originalUrl?: string;
   region?: string;
   pubDate?: string;
   paragraphs: string[];
@@ -33,6 +34,205 @@ const rssParser = new Parser({
   timeout: 7000,
 });
 
+let decoderInstance: any = null;
+
+/**
+ * Decodes Google News redirect URLs (https://news.google.com/rss/articles/...)
+ * into the real publisher URL (apnews.com, cnn.com, reuters.com, etc.)
+ */
+export async function decodeGoogleNewsUrl(rawUrl: string): Promise<string> {
+  if (!rawUrl || !rawUrl.startsWith("http")) return rawUrl || "";
+
+  // If already a direct publisher URL, return as-is
+  if (!rawUrl.includes("news.google.com")) {
+    return rawUrl;
+  }
+
+  // 1. Try google-news-url-decoder library first
+  try {
+    if (!decoderInstance) {
+      // @ts-ignore
+      const { GoogleDecoder } = await import("google-news-url-decoder");
+      decoderInstance = new GoogleDecoder();
+    }
+    const result = await decoderInstance.decode(rawUrl);
+    if (result && result.status && result.decoded_url && result.decoded_url.startsWith("http")) {
+      return result.decoded_url;
+    }
+  } catch (err) {
+    // Fall back to HTML extraction
+  }
+
+  // 2. Fallback: Fetch Google News landing page HTML and extract destination URL
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(rawUrl, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      },
+      redirect: "follow",
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (res.ok) {
+      const html = await res.text();
+      // Check data-n-au attribute (Google News redirect attribute)
+      const dataNauMatch = html.match(/data-n-au="(https?:\/\/[^"]+)"/i);
+      if (dataNauMatch && dataNauMatch[1] && !dataNauMatch[1].includes("google.com")) {
+        return dataNauMatch[1];
+      }
+
+      // Check c-wiz anchors
+      const $ = cheerio.load(html);
+      let found = "";
+      $("c-wiz a[href^='http'], article a[href^='http'], a[data-n-au]").each((_, el) => {
+        const href = $(el).attr("data-n-au") || $(el).attr("href");
+        if (href && href.startsWith("http") && !href.includes("google.com")) {
+          found = href;
+          return false;
+        }
+      });
+      if (found) return found;
+    }
+  } catch {}
+
+  return rawUrl;
+}
+
+/**
+ * Searches Bing News RSS & DuckDuckGo for direct, non-Google publisher URLs
+ * matching the headline (e.g. apnews.com, reuters.com, bbc.com)
+ */
+export async function searchDirectPublisherUrls(
+  headline: string
+): Promise<{ title: string; url: string; source: string }[]> {
+  const results: { title: string; url: string; source: string }[] = [];
+  const cleanHeadline = headline
+    .replace(/\s*-\s*[A-Za-z0-9\s]+News$/i, "")
+    .replace(/\s*-\s*(AP|Reuters|BBC|CNN|Al Jazeera|Bloomberg|The Guardian)$/i, "")
+    .replace(/[^\w\s-]/g, " ")
+    .trim();
+
+  // 1. Bing News RSS search
+  try {
+    const bingUrl = `https://www.bing.com/news/search?q=${encodeURIComponent(cleanHeadline)}&format=rss`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(bingUrl, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (res.ok) {
+      const xml = await res.text();
+      const linkRegex =
+        /<item>[\s\S]*?<title>(.*?)<\/title>[\s\S]*?<link>(.*?)<\/link>[\s\S]*?(?:<News:Source>(.*?)<\/News:Source>)?[\s\S]*?<\/item>/gi;
+      let match;
+      while ((match = linkRegex.exec(xml)) !== null && results.length < 5) {
+        const rawTitle = match[1]?.replace(/<!\[CDATA\[(.*?)\]\]>/g, "$1").trim() || "";
+        let rawLink = match[2]?.replace(/<!\[CDATA\[(.*?)\]\]>/g, "$1").replace(/&amp;/g, "&").trim() || "";
+        const rawSource = match[3] || "News Wire";
+
+        if (rawLink.includes("url=")) {
+          try {
+            const parsed = new URL(rawLink);
+            const target = parsed.searchParams.get("url");
+            if (target && target.startsWith("http")) {
+              rawLink = target;
+            }
+          } catch {}
+        }
+
+        if (
+          rawLink.startsWith("http") &&
+          !rawLink.includes("bing.com") &&
+          !rawLink.includes("google.com") &&
+          !results.some((r) => r.url === rawLink)
+        ) {
+          let sourceName = rawSource;
+          if (rawLink.includes("apnews.com")) sourceName = "AP News";
+          else if (rawLink.includes("reuters.com")) sourceName = "Reuters";
+          else if (rawLink.includes("bbc.com")) sourceName = "BBC News";
+          else if (rawLink.includes("aljazeera.com")) sourceName = "Al Jazeera";
+          else if (rawLink.includes("cnn.com")) sourceName = "CNN";
+          else if (rawLink.includes("theguardian.com")) sourceName = "The Guardian";
+          else if (rawLink.includes("bloomberg.com")) sourceName = "Bloomberg";
+
+          results.push({
+            title: rawTitle,
+            url: rawLink,
+            source: sourceName,
+          });
+        }
+      }
+    }
+  } catch {}
+
+  // 2. DuckDuckGo HTML search if needed
+  if (results.length < 2) {
+    try {
+      const ddgUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(cleanHeadline + " news")}`;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      const res = await fetch(ddgUrl, {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        const html = await res.text();
+        const $ = cheerio.load(html);
+        $(".result").each((_, el) => {
+          if (results.length >= 5) return false;
+          const aTag = $(el).find(".result__title a.result__url, .result__title a");
+          const title = $(el).find(".result__title").text().trim();
+          let href = aTag.attr("href") || "";
+
+          if (href.includes("uddg=")) {
+            try {
+              const parsed = new URL("https://duckduckgo.com" + href);
+              const target = parsed.searchParams.get("uddg");
+              if (target && target.startsWith("http")) {
+                href = decodeURIComponent(target);
+              }
+            } catch {}
+          }
+
+          if (
+            href.startsWith("http") &&
+            !href.includes("duckduckgo.com") &&
+            !href.includes("google.com") &&
+            !href.includes("youtube.com") &&
+            !results.some((r) => r.url === href)
+          ) {
+            let source = "Verified Source";
+            try {
+              const host = new URL(href).hostname.replace(/^www\./, "");
+              source = host.split(".")[0].toUpperCase();
+            } catch {}
+
+            results.push({ title, url: href, source });
+          }
+        });
+      }
+    } catch {}
+  }
+
+  return results;
+}
+
 /**
  * Cleans extracted text by stripping boilerplate, ad notices, and social links
  */
@@ -51,6 +251,8 @@ function cleanParagraphs(rawText: string): string[] {
     "copyright",
     "photo by",
     "getty images",
+    "image copyright",
+    "newsletter sign up",
   ];
 
   return rawText
@@ -64,7 +266,8 @@ function cleanParagraphs(rawText: string): string[] {
 }
 
 /**
- * Scrapes an article body via Jina Reader (https://r.jina.ai/) with Cheerio fallback
+ * Scrapes an article body via Jina Reader (https://r.jina.ai/) with Cheerio fallback.
+ * Automatically decodes Google News URLs first!
  */
 export async function scrapeArticleBody(
   url: string,
@@ -74,11 +277,14 @@ export async function scrapeArticleBody(
     return { fullText: "", paragraphs: [], sourceUrl: url || "" };
   }
 
-  // 1. Try Jina Reader API first (strict 5-second timeout per URL)
+  // Decode Google News URL to real destination URL first!
+  const targetUrl = await decodeGoogleNewsUrl(url);
+
+  // 1. Try Jina Reader API first (strict 6-second timeout)
   try {
-    const jinaUrl = `https://r.jina.ai/${url}`;
+    const jinaUrl = `https://r.jina.ai/${targetUrl}`;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
 
     const res = await fetch(jinaUrl, {
       headers: {
@@ -93,32 +299,31 @@ export async function scrapeArticleBody(
     if (res.ok) {
       const markdown = await res.text();
       if (markdown && markdown.length > 250) {
-        // Strip out markdown image tags, link brackets, and headers
         const cleaned = markdown
           .replace(/!\[.*?\]\(.*?\)/g, "")
           .replace(/\[(.*?)\]\(.*?\)/g, "$1")
           .replace(/#{1,6}\s+/g, "");
 
-        const paragraphs = cleanParagraphs(cleaned).slice(0, 10);
+        const paragraphs = cleanParagraphs(cleaned).slice(0, 15);
         if (paragraphs.length >= 2) {
           return {
             fullText: paragraphs.join("\n\n"),
             paragraphs,
-            sourceUrl: url,
+            sourceUrl: targetUrl,
           };
         }
       }
     }
   } catch (jinaErr) {
-    // Gracefully fallback to direct Cheerio scrape
+    // Fallback to direct Cheerio scrape
   }
 
-  // 2. Fallback: Direct HTML fetch + Cheerio <p> tag extraction (strict 5-second timeout)
+  // 2. Fallback: Direct HTML fetch + Cheerio <p> tag extraction
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-    const res = await fetch(url, {
+    const res = await fetch(targetUrl, {
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -133,11 +338,9 @@ export async function scrapeArticleBody(
       const html = await res.text();
       const $ = cheerio.load(html);
 
-      // Remove script, style, nav, footer, and ads
       $("script, style, nav, footer, noscript, header, aside, .advertisement, .ad").remove();
 
       const extracted: string[] = [];
-      // Search for article paragraphs
       $("article p, main p, div.story-body p, div.article-body p, p").each((_, el) => {
         const text = $(el).text().replace(/\s+/g, " ").trim();
         if (text.length > 40) {
@@ -145,51 +348,89 @@ export async function scrapeArticleBody(
         }
       });
 
-      const paragraphs = cleanParagraphs(extracted.join("\n\n")).slice(0, 10);
+      const paragraphs = cleanParagraphs(extracted.join("\n\n")).slice(0, 15);
       if (paragraphs.length > 0) {
         return {
           fullText: paragraphs.join("\n\n"),
           paragraphs,
-          sourceUrl: url,
+          sourceUrl: targetUrl,
         };
       }
     }
   } catch (cheerioErr) {
-    // Cheerio fallback finished
+    // Finished
   }
 
   return {
     fullText: fallbackTitle,
     paragraphs: [fallbackTitle],
-    sourceUrl: url,
+    sourceUrl: targetUrl,
   };
 }
 
 /**
- * Builds the VERIFIED_BRIEFING_PACK from a news cluster and background timeline searches
+ * Builds the VERIFIED_BRIEFING_PACK from a news cluster, decoded articles, and background timeline
  */
 export async function buildVerifiedBriefingPack(
   cluster: any,
   tavilyKey?: string
 ): Promise<VerifiedBriefingPack> {
-  const articles = cluster.articles || cluster.verifiedSources || [];
-  const topArticles = articles.slice(0, 4);
+  const clusterArticles = cluster.articles || cluster.verifiedSources || [];
 
-  // 1. Scrape full article bodies concurrently across top 4 articles (with 8s timeout each)
-  const scrapePromises = topArticles.map(async (art: any) => {
-    const scraped = await scrapeArticleBody(art.link, art.title);
-    return {
+  // Decode cluster articles and fetch direct publisher articles in parallel
+  const decodedArticlesList: { title: string; source: string; url: string; region: string }[] = [];
+
+  for (const art of clusterArticles.slice(0, 4)) {
+    const rawLink = art.link || art.url || "";
+    let decodedLink = rawLink;
+    if (rawLink.includes("news.google.com")) {
+      decodedLink = await decodeGoogleNewsUrl(rawLink);
+    }
+    decodedArticlesList.push({
       title: art.title,
       source: art.source || "News Wire",
-      url: art.link || "",
+      url: decodedLink,
       region: art.region || "Global",
-      pubDate: art.pubDate || "Recent",
+    });
+  }
+
+  // If we have fewer than 3 decoded articles or all are Google redirect links, search direct publishers
+  const needsMoreSources =
+    decodedArticlesList.length < 3 ||
+    decodedArticlesList.every((a) => a.url.includes("google.com"));
+
+  if (needsMoreSources) {
+    try {
+      const directPublishers = await searchDirectPublisherUrls(cluster.title);
+      for (const dp of directPublishers) {
+        if (!decodedArticlesList.some((a) => a.url === dp.url)) {
+          decodedArticlesList.push({
+            title: dp.title || cluster.title,
+            source: dp.source,
+            url: dp.url,
+            region: "Global Wire",
+          });
+          if (decodedArticlesList.length >= 5) break;
+        }
+      }
+    } catch {}
+  }
+
+  // Scrape full article bodies concurrently across all decoded articles
+  const scrapePromises = decodedArticlesList.map(async (art) => {
+    const scraped = await scrapeArticleBody(art.url, art.title);
+    return {
+      title: art.title,
+      source: art.source,
+      url: scraped.sourceUrl || art.url,
+      region: art.region,
+      pubDate: "Recent Dispatches",
       paragraphs: scraped.paragraphs,
       fullText: scraped.fullText,
     };
   });
 
-  // 2. Fetch 2 Background / Timeline Search Queries via Google News RSS & Tavily
+  // 2. Fetch Background / Timeline Search Queries via Google News RSS & Tavily
   const rawTopic = cluster.title || "";
   const coreTopic = rawTopic
     .replace(/[^\w\s-]/g, "")
@@ -279,15 +520,15 @@ export async function buildVerifiedBriefingPack(
     r.status === "fulfilled"
       ? r.value
       : {
-          title: topArticles[i]?.title || "Article",
-          source: topArticles[i]?.source || "News Wire",
-          url: topArticles[i]?.link || "",
-          paragraphs: [topArticles[i]?.snippet || topArticles[i]?.title || ""],
-          fullText: topArticles[i]?.snippet || topArticles[i]?.title || "",
+          title: decodedArticlesList[i]?.title || "Article",
+          source: decodedArticlesList[i]?.source || "News Wire",
+          url: decodedArticlesList[i]?.url || "",
+          paragraphs: [decodedArticlesList[i]?.title || ""],
+          fullText: decodedArticlesList[i]?.title || "",
         }
   );
 
-  // Format into VERIFIED_BRIEFING_PACK text block
+  // Format into VERIFIED_BRIEFING_PACK text block with rich real paragraphs
   let briefingPackText = `================================================================================
 VERIFIED BRIEFING PACK (GROUND-TRUTH EVIDENCE)
 ================================================================================

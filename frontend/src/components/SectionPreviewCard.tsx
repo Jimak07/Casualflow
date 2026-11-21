@@ -244,7 +244,7 @@ export const SectionPreviewCard: React.FC<SectionPreviewCardProps> = ({
                     className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 transition-all"
                   >
                     <BookOpen className="w-3 h-3 text-blue-400" />
-                    <span>Read Briefing</span>
+                    <span>Read Dossier</span>
                   </button>
                 )}
                 {onSelectClusterForScript && (
@@ -254,7 +254,7 @@ export const SectionPreviewCard: React.FC<SectionPreviewCardProps> = ({
                     className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white border border-blue-500/30 transition-all"
                   >
                     <PenTool className="w-3 h-3" />
-                    <span>Generate Script</span>
+                    <span>Generate Dossier</span>
                   </button>
                 )}
               </div>

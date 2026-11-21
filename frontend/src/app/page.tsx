@@ -356,39 +356,23 @@ export default function Home() {
     showToast(`✓ Downloaded ${meta.shortLabel} summary (.TXT)!`, "success");
   };
 
-  // ACTION 1: Read Briefing Handler
-  const handleSelectClusterForBriefing = async (cluster: ClusteredNewsEvent) => {
+  // ACTION 1: Read Briefing / Dossier Handler
+  const handleSelectClusterForBriefing = (cluster: ClusteredNewsEvent) => {
     setSelectedCluster(cluster);
     setCurrentView("reader");
-    setReaderTab("briefing");
-    setScriptText("");
-
-    try {
-      const res = await fetch(API_ENDPOINTS.briefing, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cluster }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setBriefingPack(data);
-      }
-    } catch (e: any) {
-      console.error("Briefing error:", e);
-    }
+    handleGenerateScript(cluster);
   };
 
-  // ACTION 2: Generate Pure Script Handler
+  // ACTION 2: Generate Dossier Handler
   const handleSelectClusterForScript = (cluster: ClusteredNewsEvent) => {
     setSelectedCluster(cluster);
     setCurrentView("reader");
-    setReaderTab("script");
     handleGenerateScript(cluster);
   };
 
   const handleGenerateScript = async (cluster: ClusteredNewsEvent) => {
     setIsGeneratingScript(true);
-    setGenerationStep("Gathering verified dispatches & running AgentRouter gpt-5.6-sol...");
+    setGenerationStep("Scraping full articles, resolving redirects & generating 800-1,000 word dossier with AgentRouter (gpt-5.6-sol)...");
 
     try {
       const res = await fetch(API_ENDPOINTS.script, {
@@ -405,12 +389,13 @@ export default function Home() {
       const data = await res.json();
 
       if (data.success) {
-        const pureScript =
+        const dossierText =
+          data.dossierText ||
           data.scriptText ||
           (data.sections || []).map((s: any) => s.narration).join("\n\n") ||
           "";
 
-        setScriptText(pureScript);
+        setScriptText(dossierText);
         setScriptModel(data.model || "gpt-5.6-sol");
         setScriptProvider(data.provider || "AgentRouter");
 
@@ -419,29 +404,28 @@ export default function Home() {
         }
 
         // Save to device library
-        saveToLibrary(cluster, pureScript, data.wordCount, data.briefingPack);
+        saveToLibrary(cluster, dossierText, data.wordCount, data.briefingPack);
 
-        // Auto-Download script text
+        // Auto-Download dossier text if preference enabled
         if (typeof window !== "undefined") {
           const autoDownload = localStorage.getItem("causalflow_auto_download");
           if (autoDownload !== "false") {
-            const rawTitle = cluster.title || "jimak-script";
+            const rawTitle = cluster.title || "intelligence-dossier";
             const slug = rawTitle
               .toLowerCase()
               .replace(/[^a-z0-9]+/g, "-")
               .slice(0, 45)
               .replace(/^-|-$/g, "");
-            const dateStr = new Date().toISOString().slice(0, 10);
-            const filename = `${slug}-${dateStr}-jimak-script.txt`;
-            downloadSummaryTextFile(pureScript, filename);
-            showToast("✓ Generated & downloaded script directly to device!", "success");
+            const filename = `${slug}-briefing.txt`;
+            downloadSummaryTextFile(dossierText, filename);
+            showToast("✓ Generated & downloaded intelligence dossier (.TXT)!", "success");
           } else {
-            showToast("✓ Screenplay generated successfully!", "success");
+            showToast("✓ Deep Intelligence Dossier generated successfully!", "success");
           }
         }
       } else {
         showToast(
-          `⚠️ Script generation failed: ${data.message || "Model error"}`,
+          `⚠️ Dossier generation failed: ${data.message || "Model error"}`,
           "warning"
         );
       }

@@ -1278,14 +1278,14 @@ function extractKeyFactsFromBriefing(briefingPack: any): {
     }
   } else {
     const outletsList = (briefingPack.scrapedArticles || []).map((a: any) => a.source).slice(0, 3).join(", ");
-    coreEvent = `Dispatches verified across ${outletsList || "international news services"} confirm critical developments regarding ${topic.toLowerCase()}, requiring immediate administrative and crisis containment measures across reporting jurisdictions.`;
+    coreEvent = `Reporting from ${outletsList || "international news services"} covers developments regarding ${topic.toLowerCase()}.`;
   }
 
   let contextBackground = "";
   if (validParagraphs[2]) {
     contextBackground = validParagraphs[2].text;
   } else {
-    contextBackground = `The situation develops against ongoing geopolitical and macroeconomic pressures, where interconnected regulatory requirements and financial flows heighten vulnerability. Observers emphasize that regional stability hinges on decisive institutional coordination over the coming days.`;
+    contextBackground = `International observers and regional authorities continue to evaluate incoming reporting across jurisdictions.`;
   }
 
   return {
@@ -1300,33 +1300,64 @@ function extractKeyFactsFromBriefing(briefingPack: any): {
   };
 }
 
-function cleanVoiceoverNarration(text: string): string {
+function cleanDossierText(text: string): string {
   if (!text) return "";
   return text
-    // 1. Strip markdown headings (### Act 1, ## Section, etc.)
-    .replace(/^#{1,6}\s+.*$/gm, "")
-    // 2. Strip ACT / SCENE / CHAPTER header lines
-    .replace(/^(?:ACT\s+[0-9IVXLCDM]+|CHAPTER\s+[0-9IVXLCDM]+|SCENE\s+[0-9IVXLCDM]+|COLD\s+OPEN|OUTRO)[^\n]*$/gim, "")
-    // 3. Strip speaker / voice labels at start of lines (e.g. VOICEOVER:, NARRATOR:, NARRATION:, VO:, HOST:)
-    .replace(/^(?:VOICEOVER|NARRATION|NARRATOR|VO|HOST|SPEAKER)\s*:\s*/gim, "")
-    .replace(/\b(?:VOICEOVER|NARRATION|NARRATOR|VO)\s*:\s*/gi, "")
-    // 4. Strip [CAPCUT CUES], [B-ROLL:...], [SFX:...], [SCENE:...], and ANY bracketed directions EXCEPT [Source: ...]
+    // Strip meta delimiters if present
+    .replace(/===META_START===[\s\S]*?===META_END===/gi, "")
+    .replace(/===VOICEOVER_START===/gi, "")
+    .replace(/===VOICEOVER_END===/gi, "")
+    .replace(/===EVIDENCE_START===[\s\S]*?===EVIDENCE_END===/gi, "")
+    // Strip any lingering script or stage cues
     .replace(/\[CAPCUT\s*CUES?[^\]]*\]/gi, "")
     .replace(/\[CapCut[^\]]*\]/gi, "")
     .replace(/\[SFX:[^\]]*\]/gi, "")
     .replace(/\[B-ROLL:[^\]]*\]/gi, "")
     .replace(/\[VISUAL:[^\]]*\]/gi, "")
-    .replace(/\[(?!\s*Source:)[^\]]*\]/gi, "")
-    // 5. Strip markdown bold / italics formatting in voiceover text
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/__([^_]+)__/g, "$1")
-    .replace(/\*([^*]+)\*/g, "$1")
-    // 6. Clean whitespace and excess newlines
+    .replace(/^(?:VOICEOVER|NARRATION|NARRATOR|VO|HOST|SPEAKER)\s*:\s*/gim, "")
+    // Normalize newlines and whitespace
     .replace(/\r/g, "")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
+
+function cleanVoiceoverNarration(text: string): string {
+  return cleanDossierText(text);
+}
+
+const DOSSIER_SYSTEM_PROMPT = `You are an elite Senior Strategic Intelligence Analyst producing an authoritative, comprehensive Deep Intelligence Dossier for senior decision makers, policymakers, and investigative journalists.
+
+Your mission is to synthesize the provided verified news reporting dispatches, direct quotes, official figures, and historical archives into an 800 to 1,000-word high-density factual dossier.
+
+================================================================================
+STRICT STRUCTURAL REQUIREMENTS (EXACTLY 4 SECTIONS):
+================================================================================
+You MUST organize the dossier into exactly these four distinct markdown sections:
+
+### 1. Executive Overview
+(Target: 150 to 200 words)
+A high-level synthesis of the breaking event: what took place, who was involved, where it happened, exact timeline, verified milestones, and initial official statements.
+
+### 2. Key Facts, Quotes & Specific Details
+(Target: 250 to 300 words)
+Concrete ground-truth evidence: exact quotes from leaders and officials, precise figures (amounts, percentages, treaty terms, troop or asset counts), specific dates, and actions taken.
+MANDATORY CITATIONS: You MUST cite every key claim, number, and quote inline using the format [Source: Outlet Name] (for example: [Source: AP News], [Source: Reuters], [Source: CNN]).
+
+### 3. Historical Context & How We Got Here
+(Target: 200 to 250 words)
+The structural, diplomatic, economic, or treaty precedents leading up to this moment. Previous negotiations, past summits or breakdowns, historical alliances, policy shifts, and baseline background that explains why this event is happening right now.
+
+### 4. Geopolitical & Global Economic Implications
+(Target: 200 to 250 words)
+Forward-looking strategic analysis: what happens next, ripple effects on allies and adversaries, impact on regional security architectures, global trade, commodities, financial markets, and critical indicators to watch over the coming weeks.
+
+================================================================================
+STRICT QUALITY GUARDRAILS:
+================================================================================
+- LENGTH: The total dossier MUST be between 800 and 1,000 words. Never output brief summaries or truncated bullet lists. Write rich, analytical, flowing paragraphs within each section.
+- ZERO BOILERPLATE: Absolutely NO generic phrases (such as "confirm critical developments regarding... requiring immediate administrative and crisis containment measures", "in conclusion", or "it remains to be seen"). Every sentence must contain factual substance and direct intelligence.
+- PURE DOSSIER: Output ONLY the complete 4-section dossier text with markdown headers. Do NOT include meta commentary, pleasantries, or preamble.`;
 
 /**
  * 4. Fast News Briefing Pack Scraper (POST /api/briefing)
@@ -1335,7 +1366,7 @@ function cleanVoiceoverNarration(text: string): string {
  */
 app.post("/api/briefing", async (req: Request, res: Response) => {
   try {
-    const { cluster, pitch, tavilyKey = "" } = req.body;
+    const { cluster, pitch, tavilyKey = "", generateDossier = false } = req.body;
     const sourceData = cluster || pitch;
     if (!sourceData) {
       return res.status(400).json({
@@ -1355,6 +1386,44 @@ app.post("/api/briefing", async (req: Request, res: Response) => {
 
     const keyFacts = extractKeyFactsFromBriefing(briefingPack);
 
+    let dossierText = "";
+    let wordCount = 0;
+
+    if (generateDossier) {
+      const rawKey = getActiveApiKey(req.body);
+      const aiConfig = detectAiProvider({
+        rawKey,
+        purpose: "script",
+      });
+
+      if (aiConfig) {
+        const userPrompt = `TOPIC: ${sourceData.title}
+CATEGORY: ${sourceData.category || sourceData.categoryLabel || "Geopolitics & Strategic Affairs"}
+REGIONS REPORTING: ${(sourceData.regions || []).join(", ") || "Global"}
+
+GROUND-TRUTH SCRAPED REPORTING & VERIFIED SOURCES:
+${briefingPack.briefingPackText}
+
+Write the complete 800 to 1,000-word Deep Intelligence Dossier adhering strictly to the 4 mandatory sections and inline [Source: Outlet Name] citations.`;
+
+        try {
+          const rawResult = await callUniversalAiRawText({
+            config: aiConfig,
+            systemPrompt: DOSSIER_SYSTEM_PROMPT,
+            userPrompt,
+            maxTokens: 4000,
+            temperature: 0.65,
+          });
+          if (rawResult?.text) {
+            dossierText = cleanDossierText(rawResult.text);
+            wordCount = dossierText.split(/\s+/).filter(Boolean).length;
+          }
+        } catch (e: any) {
+          console.error("Dossier generation during briefing error:", e.message);
+        }
+      }
+    }
+
     return res.json({
       success: true,
       topic: briefingPack.topic,
@@ -1364,6 +1433,8 @@ app.post("/api/briefing", async (req: Request, res: Response) => {
       scrapedCount: briefingPack.scrapedArticles.length,
       timelineCount: briefingPack.backgroundTimeline.length,
       executiveBriefing: keyFacts.executiveBriefing,
+      dossierText,
+      wordCount,
       articles: briefingPack.scrapedArticles.map((a: any) => ({
         title: a.title,
         source: a.source,
@@ -1452,258 +1523,36 @@ app.post("/api/script", async (req: Request, res: Response) => {
       effectiveTavilyKey
     );
 
-    console.log(
-      `[CausalFlow Backend] Briefing pack assembled: ${briefingPack.scrapedArticles.length} scraped articles, ${briefingPack.backgroundTimeline.length} historical context archives. Generating ${format.toUpperCase()} script with ${aiConfig.providerLabel}`
+        console.log(
+      `[CausalFlow Backend] Briefing pack assembled: ${briefingPack.scrapedArticles.length} scraped articles, ${briefingPack.backgroundTimeline.length} historical context archives. Generating 800-1,000 word Intelligence Dossier with ${aiConfig.providerLabel} (${aiConfig.model})`
     );
 
-    const isSingleActRegen =
-      targetActIndex !== null &&
-      targetActIndex !== undefined &&
-      typeof targetActIndex === "number" &&
-      targetActIndex >= 0;
-
-    let systemPrompt = "";
-    let userPrompt = "";
-
-    if (isSingleActRegen) {
-      systemPrompt = `${JIMAK_WRITING_STYLE_GUIDE}
-
-================================================================================
-TASK: REGENERATE SINGLE SECTION (ACT INDEX ${targetActIndex})
-================================================================================
-You are Jimak writing for an elite faceless macro-economics and geopolitics documentary channel.
-Rewrite or expand ONLY the targeted section while maintaining seamless continuity with the surrounding sections.
-Strictly adhere to all Jimak style rules:
-- Pure read-aloud voiceover paragraphs.
-- Zero [CAPCUT CUES], zero [SCENE START], zero stage directions, zero bold tags, zero markdown headers inside narration.
-- Mandatory inline source citations: [Source: Outlet Name, Region] for every factual claim.
-- Visual B-roll guidance must go strictly in the "cue" field, NOT in "narration".
-
-JSON OUTPUT FORMAT:
-{
-  "updatedSection": {
-    "act": "Section Title",
-    "cue": "Visual B-roll directions, sound design, graphics",
-    "narration": "Pure spoken voiceover with inline citations",
-    "timestamp": "e.g. 1:30 - 4:00"
-  }
-}`;
-
-      userPrompt = `BRIEFING PACK (GROUND-TRUTH EVIDENCE):
-${briefingPack.briefingPackText}
-
-EXISTING SECTIONS CONTEXT:
-${(currentSections || [])
-  .map(
-    (s: any, idx: number) =>
-      `Act [${idx + 1}] (${s.act}):\n${(s.narration || "").slice(0, 250)}...`
-  )
-  .join("\n\n")}
-
-REGENERATE ACT [${targetActIndex + 1}] strictly adhering to Jimak's style rules and ground-truth evidence above.`;
-    } else if (format === "short") {
-      // Shorts / Reel format (~280 words / 50-60 seconds)
-      systemPrompt = `${JIMAK_WRITING_STYLE_GUIDE}
-
-================================================================================
-TASK: WRITE A 50-60 SECOND SHORTS SCRIPT (~280 WORDS TOTAL)
-================================================================================
-You are Jimak writing a high-retention 50-60s Short/Reel (~280 words) designed to generate curiosity and drive viewers to the full documentary.
-
-STRICT SHORTS RULES (FROM JIMAK STYLE GUIDE):
-1. HOOK: Use one of 4 types (Consensus/Pivot, Paradox/Inversion, Comparative Shock, or Direct Question).
-2. PROOF OF URGENCY: One general, concrete statement.
-3. THREE POINTS: Exactly one punchy sentence each (cut figures that don't drive urgency; cut historical precedents and institutional detail).
-4. THE MECHANISM: In exactly one sentence.
-5. CLOSING QUESTION: One lingering systemic question.
-6. EXACT CTA WORDING: Must end with verbatim CTA: "...you can watch it using the link on this video" (never say "link in bio").
-
-STRICT BANS:
-- Output pure, clean, read-aloud voiceover text.
-- NO bullet lists, NO markdown headers (###), NO bold tags (**), NO stage directions, and NO [CAPCUT CUES] inside narration text!
-- Mandatory inline source citations: Append [Source: Outlet Name, Region] whenever stating facts or numbers.
-
-OUTPUT FORMAT — Use these exact delimiters (DO NOT OUTPUT JSON):
-===META_START===
-VEHICLE: [Choose: Evidence-Stacking / Investigative Reveal / Comparative Contrast / Case-Study Dissection / Chronological Unravelling / Cost-Benefit Breakdown]
-MECHANISM: [Choose: Feedback Loops / Market Incentives / Time Asymmetry / Structural Mismatch / Inversion / Hidden Costs / Threshold Effects]
-===META_END===
-===VOICEOVER_START===
-[Write the complete ~280-word pure spoken-word script here. No formatting, just flowing spoken paragraphs.]
-===VOICEOVER_END===
-===EVIDENCE_START===
-- [Claim in script] | [Source Outlet] | [Source URL]
-===EVIDENCE_END===`;
-
-      userPrompt = `VERIFIED BRIEFING PACK (GROUND-TRUTH EVIDENCE):
-${briefingPack.briefingPackText}
-
-TOPIC: ${sourceData.title}
-SUMMARY: ${sourceData.summary || ""}
-
-Write the complete ~280-word high-retention Shorts voiceover script based on the verified briefing pack above using the exact delimiter blocks.`;
-    } else {
-      // Long-form documentary format (~12-15m / 1,800-2,400 words)
-      systemPrompt = `${JIMAK_WRITING_STYLE_GUIDE}
-
-================================================================================
-TASK: WRITE FULL-LENGTH PRODUCTION DOCUMENTARY VOICEOVER (LONG-FORM)
-================================================================================
-You are Jimak writing for an elite faceless macro-economics and geopolitics documentary channel (Economics Explained tone).
-Write a rich, comprehensive long-form documentary voiceover screenplay (aim for 1,800 to 2,400 words across the chapters) based strictly on the provided verified briefing pack.
-
-STRICT LONG-FORM RULES (FROM JIMAK STYLE GUIDE):
-1. HOOK (First 30 seconds):
-   - Open on a concrete, factual, jarring reality or corrective to the consensus (what everyone is covering vs what they are missing), then scale to the systemic point.
-   - NEVER start with "Welcome back", "Let's dive in", or "Today we will explore".
-2. AGENDA (Right after the hook):
-   - MUST be an explicit numbered list of 3 to 4 specific questions ONLY, introduced verbatim with:
-     "So on today's video, we are going to be looking at 3 things:" (or 4 things)
-     1. [First specific question?]
-     2. [Second specific question?]
-     And finally, [Third/Final specific question?]
-3. BODY CHAPTERS:
-   - Answer each opening question in order.
-   - Connect older baseline timeline events to today's breaking update, and trace how high-level geopolitics impacts the everyday life and wallet of the average person.
-   - Weave 2 to 4 verified data points with consequences per section.
-   - Use "For example," to signpost case studies.
-4. "AND FINALLY" CLOSE:
-   - The phrase "And finally" MUST appear verbatim as the spoken transition into the final chapter.
-   - Recap the stakes, then end on a systemic question that lingers (no preachy lectures).
-   - End with the exact verbatim sign-off: "Thanks for watching today's video and see you in the next"
-5. VOICE & RHYTHM:
-   - Direct, conversational, analytical with dry wit. Sounds like a sharp person explaining something out loud, not an essay.
-   - Prefer flowing sentences joined by commas and semicolons over staccato fragments. Never use fragment runs ("Not in public. Not debated."). Never use editorial hand-wringing ("the scariest part is...", "here's what's worth sitting with").
-   - Use process words ("It becomes a spiral" rather than "It's a spiral"). Use spoken connectors ("For example,", "Now,", "But there's a second pressure...", "or more accurately,").
-
-STRICT BANS:
-- Output pure, clean, read-aloud voiceover paragraphs.
-- Zero [CAPCUT CUES], zero [SCENE START], zero stage directions, zero bold tags (**), zero markdown headers (###) inside voiceover text!
-- Mandatory inline source citations: Append [Source: Outlet Name, Region] whenever stating facts or numbers.
-
-OUTPUT FORMAT — Use these exact delimiters (DO NOT OUTPUT JSON):
-===META_START===
-VEHICLE: [Choose: Evidence-Stacking / Investigative Reveal / Comparative Contrast / Case-Study Dissection / Chronological Unravelling / Cost-Benefit Breakdown]
-MECHANISM: [Choose: Feedback Loops / Market Incentives / Time Asymmetry / Structural Mismatch / Inversion / Hidden Costs / Threshold Effects]
-===META_END===
-===VOICEOVER_START===
-[Write the complete 1,800-2,400 word pure spoken-word documentary script here as flowing read-aloud paragraphs with inline [Source: ...] citations.]
-===VOICEOVER_END===
-===EVIDENCE_START===
-- [Claim in script] | [Source Outlet] | [Source URL]
-===EVIDENCE_END===`;
-
-      userPrompt = `VERIFIED BRIEFING PACK (GROUND-TRUTH EVIDENCE):
-${briefingPack.briefingPackText}
-
-TOPIC: ${sourceData.title}
-SUBTITLE: ${sourceData.subtitle || sourceData.summary || ""}
-CATEGORY: ${sourceData.category || "Geopolitics & Macroeconomics"}
+    const userPrompt = `TOPIC: ${sourceData.title}
+CATEGORY: ${sourceData.category || sourceData.categoryLabel || "Geopolitics & Strategic Affairs"}
 REGIONS REPORTING: ${(sourceData.regions || []).join(", ") || "Global"}
 
-Write the full production documentary voiceover screenplay (1,800 to 2,400 words total voiceover) obeying all Jimak style rules and using the exact delimiter blocks above.`;
-    }
-
-    // ────────────────────────────────────────────────────────────────────────
-    // SINGLE ACT REGENERATION (still uses JSON output — short response)
-    // ────────────────────────────────────────────────────────────────────────
-    if (isSingleActRegen) {
-      const systemPrompt = `${JIMAK_WRITING_STYLE_GUIDE}
-
-================================================================================
-TASK: REGENERATE SINGLE SECTION (ACT INDEX ${targetActIndex})
-================================================================================
-You are Jimak writing for an elite faceless macro-economics and geopolitics documentary channel.
-Rewrite or expand ONLY the targeted section while maintaining seamless continuity with the surrounding sections.
-Strictly adhere to all Jimak style rules:
-- Pure read-aloud voiceover paragraphs.
-- Zero [CAPCUT CUES], zero [SCENE START], zero stage directions, zero bold tags, zero markdown headers inside narration.
-- Mandatory inline source citations: [Source: Outlet Name, Region] for every factual claim.
-- Visual B-roll guidance must go strictly in the "cue" field, NOT in "narration".
-
-JSON OUTPUT FORMAT:
-{
-  "updatedSection": {
-    "act": "Section Title",
-    "cue": "Visual B-roll directions, sound design, graphics",
-    "narration": "Pure spoken voiceover with inline citations",
-    "timestamp": "e.g. 1:30 - 4:00"
-  }
-}`;
-
-      const userPrompt = `BRIEFING PACK (GROUND-TRUTH EVIDENCE):
+GROUND-TRUTH SCRAPED REPORTING & VERIFIED SOURCES:
 ${briefingPack.briefingPackText}
 
-EXISTING SECTIONS CONTEXT:
-${(currentSections || [])
-  .map(
-    (s: any, idx: number) =>
-      `Act [${idx + 1}] (${s.act}):\n${(s.narration || "").slice(0, 250)}...`
-  )
-  .join("\n\n")}
+Write the complete 800 to 1,000-word Deep Intelligence Dossier adhering strictly to the 4 mandatory sections and inline [Source: Outlet Name] citations.`;
 
-REGENERATE ACT [${targetActIndex + 1}] strictly adhering to Jimak's style rules and ground-truth evidence above.`;
-
-      let parsed: any;
-      try {
-        parsed = await callUniversalAi({
-          config: aiConfig,
-          systemPrompt,
-          userPrompt,
-          maxTokens: 3000,
-          temperature: 0.72,
-        });
-      } catch (aiError: any) {
-        console.error(
-          `[CausalFlow Backend] Single act regen failed across models (${aiError.message})`
-        );
-        return res.status(502).json({
-          success: false,
-          error: "AI_GENERATION_FAILED",
-          message: `Live act regeneration failed: ${aiError.message}`,
-        });
-      }
-
-      const updatedSection =
-        parsed.updatedSection || parsed.sections?.[0] || parsed.section || {};
-      const cleanedNarration = cleanVoiceoverNarration(
-        updatedSection.narration || ""
-      );
-      return res.json({
-        success: true,
-        format,
-        updatedSection: {
-          act: updatedSection.act || `ACT ${targetActIndex + 1}`,
-          cue: updatedSection.cue || "",
-          narration: cleanedNarration,
-          timestamp: updatedSection.timestamp || "",
-        },
-        targetActIndex,
-        provider: aiConfig.providerLabel,
-        model: parsed._usedModel || aiConfig.model,
-        regeneratedAt: new Date().toISOString(),
-      });
-    }
-
-    // Call LLM with RAW TEXT output (no response_format: json_object, no JSON.parse failure!)
     let rawResult: { text: string; usedModel: string } | null = null;
-
     try {
       rawResult = await callUniversalAiRawText({
         config: aiConfig,
-        systemPrompt,
+        systemPrompt: DOSSIER_SYSTEM_PROMPT,
         userPrompt,
-        maxTokens: format === "short" ? 2200 : 5500,
-        temperature: 0.72,
+        maxTokens: 4000,
+        temperature: 0.65,
       });
     } catch (aiError: any) {
       console.error(
-        `[CausalFlow Backend] All AI models failed (${aiError.message})`
+        `[CausalFlow Backend] Dossier generation failed across models (${aiError.message})`
       );
       return res.status(502).json({
         success: false,
         error: "AI_GENERATION_FAILED",
-        message: `Live screenplay generation failed across models: ${aiError.message}`,
+        message: `Live dossier generation failed: ${aiError.message}`,
       });
     }
 
@@ -1715,103 +1564,39 @@ REGENERATE ACT [${targetActIndex + 1}] strictly adhering to Jimak's style rules 
       });
     }
 
-    // ────────────────────────────────────────────────────────────────────────
-    // PARSE DELIMITER-BASED OUTPUT
-    // ────────────────────────────────────────────────────────────────────────
-    const rawOutput = rawResult.text;
-
-    // 1. Extract META
-    let vehicle = "Investigative Reveal";
-    let mechanism = "Structural Mismatch & Feedback Loops";
-    const metaMatch = rawOutput.match(/===META_START===([\s\S]*?)===META_END===/i);
-    if (metaMatch) {
-      const metaBlock = metaMatch[1];
-      const vehicleMatch = metaBlock.match(/VEHICLE:\s*(.+)/i);
-      const mechMatch = metaBlock.match(/MECHANISM:\s*(.+)/i);
-      if (vehicleMatch) vehicle = vehicleMatch[1].trim();
-      if (mechMatch) mechanism = mechMatch[1].trim();
-    }
-
-    // 2. Extract VOICEOVER
-    let voiceoverText = "";
-    const voiceMatch = rawOutput.match(
-      /===VOICEOVER_START===([\s\S]*?)===VOICEOVER_END===/i
-    );
-    if (voiceMatch) {
-      voiceoverText = voiceMatch[1].trim();
-    } else {
-      // Fallback: strip META and EVIDENCE if closing tags were slightly varied
-      let cleaned = rawOutput.replace(/===META_START===[\s\S]*?===META_END===/i, "");
-      cleaned = cleaned.replace(/===EVIDENCE_START===[\s\S]*/i, "");
-      cleaned = cleaned.replace(/===VOICEOVER_START===/i, "").replace(/===VOICEOVER_END===/i, "");
-      voiceoverText = cleaned.trim();
-    }
-
-    voiceoverText = cleanVoiceoverNarration(voiceoverText);
-
-    const wordCountExtracted = voiceoverText
+    const cleanedDossier = cleanDossierText(rawResult.text);
+    const wordCountExtracted = cleanedDossier
       .split(/\s+/)
       .filter(Boolean).length;
-    if (wordCountExtracted < 40) {
-      return res.status(502).json({
-        success: false,
-        error: "AI_GENERATION_TRUNCATED",
-        message: `Model returned an incomplete script (${wordCountExtracted} words). Please retry.`,
-      });
-    }
 
-    // 3. Extract EVIDENCE
-    const evidenceLines: { claim: string; source: string; url: string }[] = [];
-    const evidenceMatch = rawOutput.match(
-      /===EVIDENCE_START===([\s\S]*?)===EVIDENCE_END===/i
-    );
-    if (evidenceMatch) {
-      const lines = evidenceMatch[1]
-        .trim()
-        .split("\n")
-        .filter((l) => l.trim().startsWith("-"));
-      for (const line of lines) {
-        const parts = line.replace(/^-\s*/, "").split("|").map((s) => s.trim());
-        if (parts[0]) {
-          evidenceLines.push({
-            claim: parts[0] || "",
-            source: parts[1] || "Verified Wire",
-            url: parts[2] || "",
-          });
-        }
-      }
-    }
-
-    // 4. Return pure continuous script with ZERO cues, ZERO act headers, ZERO stage directions
-    const pureScript = voiceoverText;
     const keyFacts = extractKeyFactsFromBriefing(briefingPack);
 
-    // Keep sections array with single continuous entry for backwards compatibility
-    const sections = [
-      {
-        act: "PURE JIMAK SCREENPLAY",
-        cue: "",
-        narration: pureScript,
-        timestamp: "0:00 – Complete",
-      },
-    ];
+    // Verified sources list with direct decoded publisher links
+    const verifiedSources = briefingPack.scrapedArticles.map((a: any) => ({
+      title: a.title,
+      source: a.source,
+      link: a.url,
+      region: a.region || "Global",
+      snippet: a.paragraphs?.[0] || "",
+    }));
 
     return res.json({
       success: true,
-      format,
-      count: 1,
-      pitchId: sourceData.id || "documentary-script",
+      pitchId: sourceData.id || "intelligence-dossier",
       title: sourceData.title,
-      category: sourceData.category || "Geopolitics & Macroeconomics",
-      scriptText: pureScript,
-      fullVoiceover: pureScript,
+      category: sourceData.category || "Geopolitics & Strategic Affairs",
+      dossierText: cleanedDossier,
+      scriptText: cleanedDossier, // for backwards compatibility
+      fullVoiceover: cleanedDossier,
       wordCount: wordCountExtracted,
-      sections,
-      meta: {
-        vehicle,
-        mechanism,
-      },
-      evidence: evidenceLines,
+      sections: [
+        {
+          act: "DEEP INTELLIGENCE DOSSIER",
+          cue: "",
+          narration: cleanedDossier,
+          timestamp: "Complete Dossier",
+        },
+      ],
       briefingPack: {
         topic: briefingPack.topic,
         consensusBadge: briefingPack.consensusBadge,
@@ -1832,23 +1617,7 @@ REGENERATE ACT [${targetActIndex + 1}] strictly adhering to Jimak's style rules 
         keyFacts,
         briefingPackText: briefingPack.briefingPackText,
       },
-      verifiedSources: [
-        ...briefingPack.scrapedArticles.map((a: any) => ({
-          title: a.title,
-          source: a.source,
-          link: a.url,
-          region: a.region,
-          snippet: a.paragraphs?.[0] || "",
-        })),
-        ...evidenceLines
-          .filter((e) => e.url && e.source)
-          .map((e) => ({
-            title: e.claim.slice(0, 80),
-            source: e.source,
-            link: e.url,
-            region: "Cited in Script",
-          })),
-      ],
+      verifiedSources,
       provider: aiConfig.providerLabel,
       model: rawResult.usedModel,
       generatedAt: new Date().toISOString(),
@@ -1858,7 +1627,7 @@ REGENERATE ACT [${targetActIndex + 1}] strictly adhering to Jimak's style rules 
     return res.status(500).json({
       success: false,
       error: "SERVER_ERROR",
-      message: error.message || "Failed to generate script",
+      message: error.message || "Failed to generate dossier",
     });
   }
 });

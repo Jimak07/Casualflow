@@ -980,11 +980,11 @@ export function synthesizeExecutiveBriefing(params: {
     // Synthesize from title entities and secondary headlines
     const { nonCountryTokens } = extractNonCountryTokens(bestArticle.title);
     const keyTerms = Array.from(nonCountryTokens).slice(0, 5).join(" ");
-    const figureStr = figures.length > 0 ? ` with financial and operational data citing ${figures.slice(0, 2).join(", ")}` : "";
+    const figureStr = figures.length > 0 ? ` with reporting citing ${figures.slice(0, 2).join(", ")}` : "";
     const altArticle = clusterArticles.find((a) => a !== bestArticle && a.title.length > 20);
-    const altAngle = altArticle ? ` Corroborating reporting from ${altArticle.source} details rapid escalation.` : "";
+    const altAngle = altArticle ? ` Coverage from ${altArticle.source} provides parallel corroboration.` : "";
 
-    coreEvent = `International reporting services led by ${primaryOutlets} confirm critical developments regarding ${keyTerms || bestArticle.title.toLowerCase().replace(/\.$/, "")}${figureStr}, actively impacting administrative and institutional oversight across ${regionsStr}.${altAngle}`;
+    coreEvent = `Dispatches from ${primaryOutlets} report on developments regarding ${keyTerms || bestArticle.title.toLowerCase().replace(/\.$/, "")}${figureStr}, with coverage across ${regionsStr}.${altAngle}`;
   }
 
   // Build Paragraph 2 (The Context & Background)
@@ -993,7 +993,7 @@ export function synthesizeExecutiveBriefing(params: {
     const p3 = nonEchoingSnippets[2].text;
     contextBackground = p3.endsWith(".") ? p3 : `${p3}.`;
   } else {
-    contextBackground = `The situation unfolds amid intensifying systemic shifts in ${categoryLabel}, where recent regulatory pressures, trade volatility, and shifting geopolitical alignments have magnified vulnerabilities across ${regionsStr}. Strategic observers note that the fallout will serve as an immediate stress test for multi-agency crisis containment and cross-border stability.`;
+    contextBackground = `International reporting focuses on ${categoryLabel.toLowerCase()} implications as observers and regional authorities assess incoming dispatches across ${regionsStr}.`;
   }
 
   coreEvent = coreEvent.replace(/\s+/g, " ").trim();
