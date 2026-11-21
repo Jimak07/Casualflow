@@ -35,6 +35,7 @@ const rssParser = new Parser({
 });
 
 let decoderInstance: any = null;
+const urlDecodeCache = new Map<string, string>();
 
 /**
  * Decodes Google News redirect URLs (https://news.google.com/rss/articles/...)
@@ -43,8 +44,14 @@ let decoderInstance: any = null;
 export async function decodeGoogleNewsUrl(rawUrl: string): Promise<string> {
   if (!rawUrl || !rawUrl.startsWith("http")) return rawUrl || "";
 
-  // If already a direct publisher URL, return as-is
+  // If already cached, return immediately
+  if (urlDecodeCache.has(rawUrl)) {
+    return urlDecodeCache.get(rawUrl)!;
+  }
+
+  // If already a direct publisher URL, cache & return as-is
   if (!rawUrl.includes("news.google.com")) {
+    urlDecodeCache.set(rawUrl, rawUrl);
     return rawUrl;
   }
 
@@ -57,6 +64,7 @@ export async function decodeGoogleNewsUrl(rawUrl: string): Promise<string> {
     }
     const result = await decoderInstance.decode(rawUrl);
     if (result && result.status && result.decoded_url && result.decoded_url.startsWith("http")) {
+      urlDecodeCache.set(rawUrl, result.decoded_url);
       return result.decoded_url;
     }
   } catch (err) {
@@ -83,6 +91,7 @@ export async function decodeGoogleNewsUrl(rawUrl: string): Promise<string> {
       // Check data-n-au attribute (Google News redirect attribute)
       const dataNauMatch = html.match(/data-n-au="(https?:\/\/[^"]+)"/i);
       if (dataNauMatch && dataNauMatch[1] && !dataNauMatch[1].includes("google.com")) {
+        urlDecodeCache.set(rawUrl, dataNauMatch[1]);
         return dataNauMatch[1];
       }
 
@@ -96,11 +105,33 @@ export async function decodeGoogleNewsUrl(rawUrl: string): Promise<string> {
           return false;
         }
       });
-      if (found) return found;
+      if (found) {
+        urlDecodeCache.set(rawUrl, found);
+        return found;
+      }
     }
   } catch {}
 
+  urlDecodeCache.set(rawUrl, rawUrl);
   return rawUrl;
+}
+
+/**
+ * Batch decodes an array of articles, replacing any Google News redirect URLs with clean publisher URLs
+ */
+export async function decodeArticleUrls<T extends { link?: string; url?: string }>(articles: T[]): Promise<T[]> {
+  if (!articles || !Array.isArray(articles)) return [];
+  return Promise.all(
+    articles.map(async (art) => {
+      const raw = art.link || art.url || "";
+      const decoded = await decodeGoogleNewsUrl(raw);
+      return {
+        ...art,
+        link: decoded,
+        url: decoded,
+      };
+    })
+  );
 }
 
 /**

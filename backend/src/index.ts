@@ -9,7 +9,7 @@ import {
   getAvailableModelsForProvider,
 } from "./aiProvider.js";
 import { generateRssConsensusPitches } from "./fallbackSynthesis.js";
-import { buildVerifiedBriefingPack } from "./articleScraper.js";
+import { buildVerifiedBriefingPack, decodeGoogleNewsUrl, decodeArticleUrls } from "./articleScraper.js";
 import { JIMAK_WRITING_STYLE_GUIDE } from "./jimakStyleGuide.js";
 import { getActiveApiKey } from "./config/keys.js";
 
@@ -1628,6 +1628,290 @@ Write the complete 800 to 1,000-word Deep Intelligence Dossier adhering strictly
       success: false,
       error: "SERVER_ERROR",
       message: error.message || "Failed to generate dossier",
+    });
+  }
+});
+
+// Cache for enriched summaries
+const summaryBriefingsCache = new Map<
+  string,
+  { aiBriefing: string; wordCount: number; timestamp: number }
+>();
+
+const SINGLE_SECTION_AI_PROMPT = `You are an elite Senior Strategic Intelligence Analyst synthesizing a factual documentary intelligence briefing.
+Based STRICTLY on the provided reporting dispatches, direct quotes, and verified figures, synthesize an authoritative, factual 350 to 500-word executive briefing covering:
+1. WHAT HAPPENED: Detailed breakdown of the breaking event, parties involved, locations, and timeline.
+2. KEY FACTS, QUOTES & DATA: Concrete statements from officials, exact figures, and dates, with mandatory inline citations [Source: Outlet Name].
+3. GEOPOLITICAL & ECONOMIC STAKES: Market repercussions, supply chain impact, diplomatic shifts, and systemic risks.
+
+STRICT RULES:
+- Word count MUST be between 350 and 500 words.
+- Absolutely ZERO generic boilerplate phrases (no "confirm critical developments", no "requiring immediate administrative measures").
+- Write rich, flowing paragraphs with inline citations. Zero conversational filler or CapCut cues.`;
+
+const MASTER_SUMMARY_AI_PROMPT = `You are an elite Senior Strategic Analyst producing a concise, high-density briefing for a global master intelligence sheet.
+Based STRICTLY on the provided reporting dispatches, synthesize a dense, zero-fluff 150 to 200-word factual briefing covering the core breaking event, verified facts, figures, key actors, and direct geopolitical or economic stakes.
+
+STRICT RULES:
+- Word count MUST be between 150 and 200 words.
+- Absolutely ZERO generic boilerplate or headline repetition.
+- Include specific numbers, official quotes, and inline citations [Source: Outlet Name].
+- Flowing factual narrative, zero conversational filler.`;
+
+async function synthesizeSummaryBriefingForEvent(params: {
+  event: ClusteredNewsEvent;
+  mode: "section" | "master";
+  aiConfig: any;
+  effectiveTavilyKey: string;
+}): Promise<{ aiBriefing: string; wordCount: number; decodedArticles: any[] }> {
+  const { event, mode, aiConfig, effectiveTavilyKey } = params;
+
+  // 1. Decode all source URLs immediately
+  const decodedArticles = await Promise.all(
+    (event.articles || []).map(async (art) => ({
+      ...art,
+      link: await decodeGoogleNewsUrl(art.link),
+    }))
+  );
+
+  // 2. Check in-memory cache
+  const cacheKey = `${mode}:${event.id || event.title.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 40)}`;
+  if (summaryBriefingsCache.has(cacheKey)) {
+    const cached = summaryBriefingsCache.get(cacheKey)!;
+    return {
+      aiBriefing: cached.aiBriefing,
+      wordCount: cached.wordCount,
+      decodedArticles,
+    };
+  }
+
+  // 3. Assemble briefing pack (scrapes body paragraphs and searches direct publishers)
+  try {
+    const briefingPack = await buildVerifiedBriefingPack(event, effectiveTavilyKey);
+
+    // Merge any direct publisher URLs discovered by scraper
+    const existingUrls = new Set(decodedArticles.map((a) => a.link));
+    for (const scraped of briefingPack.scrapedArticles) {
+      if (scraped.url && !existingUrls.has(scraped.url) && !scraped.url.includes("news.google.com")) {
+        existingUrls.add(scraped.url);
+        decodedArticles.push({
+          title: scraped.title,
+          source: scraped.source,
+          link: scraped.url,
+          region: scraped.region || "Global",
+          pubDate: scraped.pubDate || new Date().toISOString(),
+        });
+      }
+    }
+
+    if (aiConfig) {
+      const systemPrompt = mode === "section" ? SINGLE_SECTION_AI_PROMPT : MASTER_SUMMARY_AI_PROMPT;
+      const targetWords = mode === "section" ? "350 to 500-word" : "150 to 200-word";
+      const userPrompt = `TOPIC: ${event.title}
+CATEGORY: ${event.category || event.categoryLabel || "Geopolitics"}
+REGIONS REPORTING: ${(event.regions || []).join(", ") || "Global"}
+
+GROUND-TRUTH SCRAPED REPORTING & VERIFIED SOURCES:
+${briefingPack.briefingPackText}
+
+Write the complete ${targetWords} factual briefing obeying all strict guidelines.`;
+
+      const rawResult = await callUniversalAiRawText({
+        config: aiConfig,
+        systemPrompt,
+        userPrompt,
+        maxTokens: mode === "section" ? 1600 : 800,
+        temperature: 0.65,
+      });
+
+      if (rawResult && rawResult.text) {
+        const cleaned = cleanDossierText(rawResult.text);
+        const wordCount = cleaned.split(/\s+/).filter(Boolean).length;
+        summaryBriefingsCache.set(cacheKey, {
+          aiBriefing: cleaned,
+          wordCount,
+          timestamp: Date.now(),
+        });
+        return {
+          aiBriefing: cleaned,
+          wordCount,
+          decodedArticles,
+        };
+      }
+    }
+  } catch (err: any) {
+    console.warn(`[Summary Compiler] Synthesis error for "${event.title}":`, err.message);
+  }
+
+  // Fallback if AI or scraping encounters an issue
+  let fallbackText = "";
+  if (event.executiveBriefing) {
+    fallbackText = `${event.executiveBriefing.coreEvent}\n\n${event.executiveBriefing.contextBackground}`;
+  } else {
+    fallbackText = event.summary || event.title;
+  }
+  const wordCount = fallbackText.split(/\s+/).filter(Boolean).length;
+
+  return {
+    aiBriefing: fallbackText,
+    wordCount,
+    decodedArticles,
+  };
+}
+
+/**
+ * 6. Intelligence Summary Compilation Engine (POST /api/summaries/compile)
+ * Supports Two-Speed AI Briefing Compilation:
+ * - Single-Section Summary: 350 to 500-word factual briefings per story
+ * - All-Sections Master Summary: 150 to 200-word dense, zero-fluff briefings per story
+ * Decodes all source URLs to clean, direct publisher links.
+ */
+app.post("/api/summaries/compile", async (req: Request, res: Response) => {
+  try {
+    const {
+      scope = "ALL 24 SECTIONS",
+      sortMode = "importance",
+      categoryKey = "",
+      clusters = [],
+      tavilyKey = "",
+      limitPerSection = null,
+    } = req.body;
+
+    const rawKey = getActiveApiKey(req.body);
+    const aiConfig = detectAiProvider({
+      rawKey,
+      purpose: "script",
+    });
+
+    const effectiveTavilyKey =
+      (tavilyKey && tavilyKey.trim()) || process.env.TAVILY_API_KEY || "";
+
+    const isGlobal =
+      scope.toUpperCase() === "ALL 24 SECTIONS" ||
+      scope.toUpperCase() === "GLOBAL" ||
+      scope.toUpperCase() === "ALL SECTIONS";
+
+    const mode: "section" | "master" = isGlobal ? "master" : "section";
+
+    // 1. Resolve active clusters
+    const activeClusters: ClusteredNewsEvent[] = Array.isArray(clusters) ? clusters : [];
+
+    // 2. Select target sections
+    const targetSections = isGlobal
+      ? EVENT_CATEGORIES
+      : EVENT_CATEGORIES.filter(
+          (s) =>
+            s.key.toLowerCase() === (categoryKey || scope).toLowerCase() ||
+            s.label.toUpperCase() === scope.toUpperCase() ||
+            s.shortLabel.toUpperCase() === scope.toUpperCase()
+        );
+
+    // Group events by categoryKey
+    const eventsByCategory = new Map<string, ClusteredNewsEvent[]>();
+    for (const ev of activeClusters) {
+      const key = ev.categoryKey || "world";
+      if (!eventsByCategory.has(key)) eventsByCategory.set(key, []);
+      eventsByCategory.get(key)!.push(ev);
+    }
+
+    // Sort events within each category by sortMode
+    for (const [key, list] of eventsByCategory.entries()) {
+      list.sort((a, b) => {
+        if (sortMode === "popularity" || sortMode === "consensus") {
+          const aPop = a.popularityScore ?? a.consensusScore * 10;
+          const bPop = b.popularityScore ?? b.consensusScore * 10;
+          if (bPop !== aPop) return bPop - aPop;
+          return (b.recencyScore ?? 0) - (a.recencyScore ?? 0);
+        } else {
+          const aImp = a.importanceScore ?? a.sensitivityScore;
+          const bImp = b.importanceScore ?? b.sensitivityScore;
+          if (bImp !== aImp) return bImp - aImp;
+          return (b.recencyScore ?? 0) - (a.recencyScore ?? 0);
+        }
+      });
+    }
+
+    // 3. Select stories to process
+    // In "master" mode: top 1 story per section
+    // In "section" mode: up to 6 stories in that section
+    const maxPerSection = limitPerSection || (mode === "master" ? 1 : 6);
+    const storiesToProcess: { section: any; event: ClusteredNewsEvent }[] = [];
+
+    for (const sec of targetSections) {
+      const secEvents = eventsByCategory.get(sec.key) || [];
+      const slice = secEvents.slice(0, maxPerSection);
+      for (const ev of slice) {
+        storiesToProcess.push({ section: sec, event: ev });
+      }
+    }
+
+    console.log(
+      `[Summary Compiler] Compiling ${mode.toUpperCase()} summaries for ${storiesToProcess.length} stories across ${targetSections.length} sections (${mode === "section" ? "350-500w" : "150-200w"} briefings)`
+    );
+
+    // 4. Process stories in parallel batches
+    const batchSize = mode === "section" ? 6 : 4;
+    const enrichedEventsMap = new Map<string, ClusteredNewsEvent>();
+
+    for (let i = 0; i < storiesToProcess.length; i += batchSize) {
+      const batch = storiesToProcess.slice(i, i + batchSize);
+      await Promise.all(
+        batch.map(async ({ event }) => {
+          const result = await synthesizeSummaryBriefingForEvent({
+            event,
+            mode,
+            aiConfig,
+            effectiveTavilyKey,
+          });
+
+          enrichedEventsMap.set(event.id || event.title, {
+            ...event,
+            aiBriefing: result.aiBriefing,
+            articles: result.decodedArticles,
+          });
+        })
+      );
+    }
+
+    // 5. Construct enriched clusters array
+    const enrichedClusters: ClusteredNewsEvent[] = [];
+    for (const sec of targetSections) {
+      const secEvents = eventsByCategory.get(sec.key) || [];
+      const slice = secEvents.slice(0, maxPerSection);
+      for (const ev of slice) {
+        const enriched = enrichedEventsMap.get(ev.id || ev.title);
+        if (enriched) {
+          enrichedClusters.push(enriched);
+        } else {
+          enrichedClusters.push(ev);
+        }
+      }
+    }
+
+    // 6. Generate compiled text with clean formatting & decoded URLs
+    const compiledText = generateCompiledSummaryText({
+      scope,
+      sortMode,
+      events: enrichedClusters,
+      sectionMetas: targetSections,
+    });
+
+    return res.json({
+      success: true,
+      scope,
+      mode,
+      storyCount: enrichedClusters.length,
+      targetWordsPerStory: mode === "section" ? "350-500 words" : "150-200 words",
+      compiledText,
+      enrichedClusters,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    console.error("[Summary Compiler] Compilation error:", err);
+    return res.status(500).json({
+      success: false,
+      error: "COMPILATION_FAILED",
+      message: err.message || "Failed to compile intelligence summaries",
     });
   }
 });

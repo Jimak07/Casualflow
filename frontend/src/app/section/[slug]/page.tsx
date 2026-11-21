@@ -199,9 +199,35 @@ function SectionPageContent() {
   }, [allClusters, slug, sortMode]);
 
   // Single Section .TXT Download
-  const handleDownloadSectionTxt = () => {
+  const handleDownloadSectionTxt = async () => {
+    showToast(`Synthesizing ${sectionMeta.shortLabel} rich briefings with AgentRouter...`, "info");
     const dateStr = new Date().toISOString().slice(0, 10);
     const filename = `causalflow-${slug}-summary-${dateStr}.txt`;
+
+    try {
+      const res = await fetch(API_ENDPOINTS.summariesCompile, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scope: sectionMeta.label,
+          categoryKey: slug,
+          sortMode: sortMode === "importance" ? "importance" : "popularity",
+          clusters: sectionClusters,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.compiledText) {
+          downloadSummaryTextFile(data.compiledText, filename);
+          showToast(`✓ Downloaded ${sectionMeta.shortLabel} rich summary (.TXT)!`, "success");
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn("Backend compile error, using fast fallback:", e);
+    }
+
     const text = generateCompiledSummaryText({
       scope: sectionMeta.label,
       sortMode:

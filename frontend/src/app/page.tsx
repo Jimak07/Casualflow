@@ -315,10 +315,35 @@ export default function Home() {
   };
 
   // Global Master .TXT Download Action (Requirement 2)
-  const handleDownloadAllSummaries = () => {
+  const handleDownloadAllSummaries = async () => {
+    showToast("Synthesizing Master Summary across all 24 sections with AgentRouter...", "info");
     const dateStr = new Date().toISOString().slice(0, 10);
     const filename = `causalflow-all-sections-summary-${dateStr}.txt`;
-    const text = generateCompiledSummaryText({
+
+    try {
+      const res = await fetch(API_ENDPOINTS.summariesCompile, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scope: "ALL 24 SECTIONS",
+          sortMode: sortMode === "importance" ? "importance" : "popularity",
+          clusters: filteredAndSortedClusters,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.compiledText) {
+          downloadSummaryTextFile(data.compiledText, filename);
+          showToast("✓ Downloaded Master Summary across all 24 sections (.TXT)!", "success");
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn("Backend compile error, using fast fallback:", e);
+    }
+
+    const fallbackText = generateCompiledSummaryText({
       scope: "ALL 24 SECTIONS",
       sortMode:
         sortMode === "importance"
@@ -327,7 +352,7 @@ export default function Home() {
       events: filteredAndSortedClusters,
       sectionMetas: EVENT_CATEGORIES,
     });
-    downloadSummaryTextFile(text, filename);
+    downloadSummaryTextFile(fallbackText, filename);
     showToast("✓ Downloaded Master Summary across all 24 sections (.TXT)!", "success");
   };
 
@@ -339,11 +364,37 @@ export default function Home() {
   };
 
   // Section .TXT Download Action from Section Card
-  const handleDownloadSectionTxt = (meta: EventCategoryMeta) => {
+  const handleDownloadSectionTxt = async (meta: EventCategoryMeta) => {
+    showToast(`Synthesizing ${meta.shortLabel} rich briefings with AgentRouter...`, "info");
     const dateStr = new Date().toISOString().slice(0, 10);
     const filename = `causalflow-${meta.key}-summary-${dateStr}.txt`;
     const secClusters = filteredAndSortedClusters.filter((c) => c.categoryKey === meta.key);
-    const text = generateCompiledSummaryText({
+
+    try {
+      const res = await fetch(API_ENDPOINTS.summariesCompile, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scope: meta.label,
+          categoryKey: meta.key,
+          sortMode: sortMode === "importance" ? "importance" : "popularity",
+          clusters: secClusters,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.compiledText) {
+          downloadSummaryTextFile(data.compiledText, filename);
+          showToast(`✓ Downloaded ${meta.shortLabel} rich summary (.TXT)!`, "success");
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn("Backend compile error, using fast fallback:", e);
+    }
+
+    const fallbackText = generateCompiledSummaryText({
       scope: meta.label,
       sortMode:
         sortMode === "importance"
@@ -352,7 +403,7 @@ export default function Home() {
       events: secClusters,
       sectionMetas: [meta],
     });
-    downloadSummaryTextFile(text, filename);
+    downloadSummaryTextFile(fallbackText, filename);
     showToast(`✓ Downloaded ${meta.shortLabel} summary (.TXT)!`, "success");
   };
 

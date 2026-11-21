@@ -430,6 +430,7 @@ export interface ClusteredNewsEvent {
   title: string;
   summary: string;
   executiveBriefing?: ExecutiveBriefing;
+  aiBriefing?: string; // Rich 350-500w (section) or 150-200w (master) factual briefing synthesized by AgentRouter
   categoryKey?: EventCategoryKey;
   categoryLabel?: string;
   category?: string;

@@ -80,10 +80,14 @@ export function generateCompiledSummaryText(params: GenerateSummaryParams): stri
       lines.push(`SECTION: ${sec.label}`);
       lines.push("");
       lines.push("EXECUTIVE BRIEFING:");
-      if (ev.executiveBriefing) {
+      if (ev.aiBriefing) {
+        lines.push(ev.aiBriefing.trim());
+      } else if (ev.executiveBriefing) {
         lines.push(ev.executiveBriefing.coreEvent);
-        lines.push("");
-        lines.push(ev.executiveBriefing.contextBackground);
+        if (ev.executiveBriefing.contextBackground && ev.executiveBriefing.contextBackground !== ev.executiveBriefing.coreEvent) {
+          lines.push("");
+          lines.push(ev.executiveBriefing.contextBackground);
+        }
       } else if (ev.summary) {
         lines.push(ev.summary);
       }
